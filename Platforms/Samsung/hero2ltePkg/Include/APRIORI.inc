@@ -14,6 +14,14 @@ APRIORI DXE {
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
   INF SamsungPkg/Drivers/SpeedyDxe/SpeedyDxe.inf
 
+  INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
+
+  INF SamsungPkg/Drivers/UfsDxe/UfsDxe.inf
+
+  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
+  INF FatPkg/EnhancedFatDxe/Fat.inf
+
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
   INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf

@@ -33,6 +33,8 @@ gMemoryDescriptor[] = {
   {"GICH",               0x11004000, 0x00002000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"GICV",               0x11006000, 0x00002000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"PMU",                0x105C0000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"SYSREG FSYS0",       0x10E50000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"UFS",                0x155A0000, 0x00003000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},      // HCI, VS, UniPro, PMA, UFSP
   {"Decon",              0x13960000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE}       // decon_f
 };
 
