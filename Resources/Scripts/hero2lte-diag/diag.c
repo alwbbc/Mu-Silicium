@@ -14,7 +14,40 @@ static void dump(const char *name,u64 base,u32 len){
 }
 static u64 sysreg_sctlr(int el){ u64 v=0;
   if(el==2) __asm__ volatile("mrs %0, sctlr_el2":"=r"(v)); else __asm__ volatile("mrs %0, sctlr_el1":"=r"(v)); return v; }
+static void wr(u64 a,u32 v){ *(volatile u32*)a=v; __asm__ volatile("dsb sy"); }
+static void delay(u32 n){ for(volatile u32 i=0;i<n;i++); }
+#define DECON 0x13960000UL
+static void show(const char*t){ puts_("\n[HERO2DBG] "); puts_(t); puts_(" 0x60="); hex(rd(DECON+0x60),8);
+  puts_(" 0x70="); hex(rd(DECON+0x70),8); puts_(" 0x00="); hex(rd(DECON),8); puts_(" 0x80="); hex(rd(DECON+0x80),8); }
 void diag_main(u64 dtb,u64 load,u64 cel){
+#ifdef TRIG_MODE
+  p=(char*)LOG_BASE;
+  puts_("\n\n[HERO2DBG] ===== hero2lte trig test mode " ); hex(TRIG_MODE,1); puts_(" =====");
+  puts_("\n[HERO2DBG] load="); hex(load,10); puts_(" dtb="); hex(dtb,10); puts_(" EL="); hex((cel>>2)&3,1);
+  show("before");
+  /* paint: white top half, blue bottom half */
+  volatile u32 *fb=(volatile u32*)0xE2A00000UL;
+  for(u32 i=0;i<1440*2560;i++) fb[i]= (i<1440*1280)?0xFFFFFFFF:0xFF0000FF;
+  __asm__ volatile("dsb sy");
+  u32 v=rd(DECON+0x70);
+#if TRIG_MODE == 1
+  /* HW (TE) trigger, unmasked, no auto-mask: continuous refresh */
+  v = (v | (1u<<4)) & ~((1u<<5)|(1u<<12));
+  wr(DECON+0x70,v);
+  wr(DECON+0x60, rd(DECON+0x60) | (1u<<31));
+#else
+  /* SW trigger one-shot */
+  v = (v & ~(1u<<4)) | (1u<<8);
+  wr(DECON+0x60, rd(DECON+0x60) | (1u<<31));
+  wr(DECON+0x70,v);
+#endif
+  show("after");
+  delay(10000000);
+  show("later");
+  puts_("\n[HERO2DBG] ===== end =====\n\n");
+  __asm__ volatile("dsb sy");
+  return;
+#endif
   p=(char*)LOG_BASE;
   int el=(cel>>2)&3;
   puts_("\n\n[HERO2DBG] ===== hero2lte diag v1 =====");
