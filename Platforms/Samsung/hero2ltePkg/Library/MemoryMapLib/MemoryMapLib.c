@@ -12,9 +12,13 @@ gMemoryDescriptor[] = {
   // Name, Address, Length, HobOption, ResourceType, ResourceAttribute, MemoryType, ArmAttribute
 
   // DDR Regions
-  {"Exynos Snapshot",    0x91200000, 0x01000000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},       // ess_setup
+  {"Free Memory 0",      0x80100000, 0x11100000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},       // keeps sec_debug page at 0x80000000 untouched
+  {"Exynos Snapshot",    0x91200000, 0x01000000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},       // ess_setup (log_kernel, ramoops)
+  {"Free Memory 3",      0x92200000, 0x00C00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"SEC Debug Logs",     0x92E00000, 0x00300000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},       // tima/avc/auto_summary logs
+  {"Free Memory 4",      0x93100000, 0x1DF00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"Tima",               0xB1000000, 0x00200000, AddMem, SYS_MEM, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED},
+  {"Free Memory 5",      0xB1200000, 0x00E00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"UEFI FD",            0xB2000000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
   {"UEFI Stack",         0xB2200000, 0x00040000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
   {"DXE Heap",           0xB2240000, 0x0DDC0000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},       // up to 0xC0000000
@@ -23,7 +27,9 @@ gMemoryDescriptor[] = {
   {"Display Reserved",   0xE2A00000, 0x01C20000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},    // 2x 1440*2560*4
   {"Free Memory 2",      0xE4620000, 0x0B9E0000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"Modem",              0xF0000000, 0x08800000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},
+  {"Free Memory 6",      0xF8800000, 0x03800000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"Secure Camera",      0xFC000000, 0x01C00000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},
+  {"Free Memory 7",      0xFDC00000, 0x00800000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"RAM Partition",      0x880000000,0x80000000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},       // 2GB
 
   // Register Regions

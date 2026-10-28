@@ -10,3 +10,8 @@ First bring-up kit: boots a mainline arm64 kernel (EFI stub) from the UEFI Shell
 - `mkfat16.py`: builds the small FAT16 image written to the CACHE partition (sda15).
 
 Build (from a Linux tree, LLVM=1 ARCH=arm64): copy kernel.config to .config, set INITRAMFS_SOURCE, `make Image`.
+
+## Alpine + Weston desktop (display only)
+`alpine/init` and `alpine/weston.ini` go into an Alpine v3.24 aarch64 rootfs (busybox, weston,
+weston-backend-drm, weston-shell-desktop, weston-terminal, seatd-launch, eudev, font-dejavu; Mesa/LLVM
+removed, pixman renderer). It is packed as a gzip cpio and loaded with `initrd=\ROOTFS.CPZ`.

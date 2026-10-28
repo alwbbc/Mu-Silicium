@@ -1,0 +1,34 @@
+#!/bin/busybox sh
+# hero2lte desktop bring-up init (initramfs, no storage driver yet)
+/bin/busybox --install -s
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /dev/pts /dev/shm /run /tmp
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /dev/shm
+mount -t tmpfs tmpfs /run
+mount -t tmpfs tmpfs /tmp
+exec </dev/console >/dev/console 2>&1
+clear
+echo "=================================================="
+echo "  Alpine Linux on Galaxy S7 Edge (hero2lte), UEFI"
+echo "=================================================="
+uname -a
+echo "CPUs online: $(cat /sys/devices/system/cpu/online)  ($(nproc) cores)"
+grep -E "MemTotal|MemAvailable" /proc/meminfo
+echo "--- kernel warnings/errors ---"
+dmesg | grep -iE "error|fail|warn" | tail -n 8
+echo "--- starting udev ---"
+/sbin/udevd --daemon 2>/dev/null && udevadm trigger && udevadm settle -t 5
+ls -l /dev/dri 2>&1
+mkdir -p /run/xdg && chmod 0700 /run/xdg
+export XDG_RUNTIME_DIR=/run/xdg
+echo "--- starting weston (desktop in 3s) ---"
+sleep 3
+seatd-launch -- weston --backend=drm --renderer=pixman --shell=desktop --log=/tmp/weston.log
+echo "weston exited with $?; last log lines:"
+tail -n 40 /tmp/weston.log
+echo "dropping to idle loop"
+while true; do sleep 60; done
