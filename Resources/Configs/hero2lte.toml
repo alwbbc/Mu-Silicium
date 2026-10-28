@@ -1,0 +1,37 @@
+#
+# Galaxy S7 Edge (SM-G935F) - hero2lte
+#
+
+#
+# Boot Shim Configs
+#
+[boot_shim]
+requires_kernel_header = true
+
+#
+# UEFI FD Configs
+#
+[uefi_fd]
+base = 0xB2000000
+size = 0x200000
+
+#
+# Android Boot Image Kernel Configs
+#
+[boot_image_kernel]
+kernel_compression = "none"
+append_dtb         = false
+
+#
+# Android Boot Image Configs
+# Stock BOOT: v0 header, base 0x10000000, page 2048, Samsung DTBH dt.img in the
+# header_version slot. build_uefi.py's image has NO DT; repack it afterwards with
+# Resources/Scripts/hero2lte_mkboot.py (see PORTING-hero2lte.md).
+#
+[boot_image]
+base           = 0x10000000
+kernel_offset  = 0x00008000
+ramdisk_offset = 0x01000000
+second_offset  = 0x00F00000
+tags_offset    = 0x00000100
+header_version = 0
