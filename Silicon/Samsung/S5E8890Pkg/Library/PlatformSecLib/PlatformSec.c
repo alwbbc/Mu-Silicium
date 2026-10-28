@@ -21,8 +21,20 @@ EnableFrameBufferWrites ()
     return;
   }
 
-  // Configure Decon
-  MmioWrite32 (DeconRegion.Address + HW_SW_TRIG_CONTROL, 0x1281);
+  //
+  // The S7 Edge panel runs in MIPI command mode, so the Decon only pushes a
+  // frame when triggered. Switch to TE (HW) triggering, unmasked and without
+  // auto-mask, so every TE pulse refreshes the panel from the frame buffer.
+  // Verified on hardware with the hero2lte-diag TRIG_MODE=1 probe.
+  //
+  MmioAndThenOr32 (
+    DeconRegion.Address + HW_SW_TRIG_CONTROL,
+    ~(HW_SW_TRIG_CONTROL_HW_TRIG_MASK | HW_SW_TRIG_CONTROL_TRIG_AUTO_MASK_TRIG),
+    HW_SW_TRIG_CONTROL_HW_TRIG_EN
+    );
+
+  // Latch Shadow Registers
+  MmioOr32 (DeconRegion.Address + SHADOW_REG_UPDATE_REQ, SHADOW_REG_UPDATE_REQ_GLOBAL);
 }
 
 VOID
