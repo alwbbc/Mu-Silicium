@@ -19,8 +19,8 @@
 // Clocks
 // PCLK must end up within the DT "pclk-freq-avail-range" (70 - 133 MHz).
 //
-#define UFS_MCLK_RATE                  166000000ULL   // sclk_ufsunipro, filled from TWRP clk_summary
-#define UFS_PCLK_RATE                  133000000ULL   // sclk_ufsunipro20_cfg (DT: use-seperated-pclk)
+#define UFS_MCLK_RATE                  166000000ULL   // sclk_ufsunipro (assumed; link + HS G3 verified on SM-G935F)
+#define UFS_PCLK_RATE                  133000000ULL   // sclk_ufsunipro20_cfg (assumed, DT: use-seperated-pclk)
 #define UFS_PCLK_AVAIL_MIN             70000000UL
 #define UFS_PCLK_AVAIL_MAX             133000000UL
 
