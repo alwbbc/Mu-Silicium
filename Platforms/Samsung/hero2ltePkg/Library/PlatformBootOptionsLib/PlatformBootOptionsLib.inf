@@ -1,0 +1,19 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = PlatformBootOptionsLib
+  FILE_GUID                      = 6E1D2B44-3F9A-4C78-B0E5-9A7D21C8F310
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformBootOptionsLib|DXE_DRIVER
+
+[Sources]
+  PlatformBootOptions.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  MemoryAllocationLib

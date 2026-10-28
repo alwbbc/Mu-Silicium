@@ -43,3 +43,5 @@
   INF SamsungPkg/Drivers/RngDxe/RngDxe.inf
 
   INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
+
+  INF ShellPkg/Application/Shell/Shell.inf
