@@ -558,6 +558,7 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
     case SRB_FUNCTION_RESET_LOGICAL_UNIT:
     case SRB_FUNCTION_FLUSH:
     case SRB_FUNCTION_SHUTDOWN:
+    case SRB_FUNCTION_POWER:          /* D-state changes: the link stays up, nothing to do */
         status = SRB_STATUS_SUCCESS;
         break;
     default:

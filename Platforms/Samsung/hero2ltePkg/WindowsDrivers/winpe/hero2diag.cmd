@@ -41,8 +41,24 @@ wpeutil reboot
 goto end
 
 :already
-echo Windows zaten hazirlanmis (W:\hero2_done.txt var).
+echo Windows zaten hazirlanmis (W:\hero2_done.txt var). Bakim yapiliyor...
+echo [1/3] suruculer guncelleniyor
+copy /y X:\hero2drv\ufs\hero2ufs.sys W:\Windows\System32\drivers\hero2ufs.sys
+copy /y X:\hero2drv\touch\hero2touch.sys W:\Windows\System32\drivers\hero2touch.sys
+for /d %%d in (W:\Windows\System32\DriverStore\FileRepository\hero2ufs.inf_*) do copy /y X:\hero2drv\ufs\hero2ufs.sys "%%d\hero2ufs.sys"
+for /d %%d in (W:\Windows\System32\DriverStore\FileRepository\hero2touch.inf_*) do copy /y X:\hero2drv\touch\hero2touch.sys "%%d\hero2touch.sys"
+echo [2/3] mavi ekranda parametreleri goster, otomatik yeniden baslatma kapali
+reg load HKLM\OFFSYS W:\Windows\System32\config\SYSTEM >nul
+reg add HKLM\OFFSYS\ControlSet001\Control\CrashControl /v DisplayParameters /t REG_DWORD /d 1 /f >nul
+reg add HKLM\OFFSYS\ControlSet001\Control\CrashControl /v AutoReboot /t REG_DWORD /d 0 /f >nul
+reg unload HKLM\OFFSYS >nul
+echo [3/3] son cokmeler (Kernel-Power 41 / BugCheck 1001):
+wevtutil qe W:\Windows\System32\winevt\Logs\System.evtx /lf:true /q:"*[System[(EventID=41 or EventID=1001)]]" /c:2 /rd:true /f:text
 echo.
+echo FOTOGRAF CEK. 120 saniye sonra telefon yeniden baslayacak.
+ping -n 120 127.0.0.1 >nul
+wpeutil reboot
+goto end
 
 :diag
 echo list disk > X:\dp.txt
