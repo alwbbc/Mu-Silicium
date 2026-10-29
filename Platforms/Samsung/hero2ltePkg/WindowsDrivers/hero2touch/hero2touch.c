@@ -549,6 +549,13 @@ static VOID PollThread(PVOID ctx)
             }
         }
         if (changed) PublishTouch(c, sl);
+        else if (c->TouchOk && !c->QCount) {
+            /* finger held still: the controller goes quiet, but Windows wants a
+             * steady stream of frames (press-and-hold = right click) */
+            BOOLEAN any = FALSE;
+            for (int i = 0; i < MAX_CONTACTS; i++) if (sl[i].Used && sl[i].Down) any = TRUE;
+            if (any) PublishTouch(c, sl);
+        }
         TryComplete(c);
     }
     PsTerminateSystemThread(STATUS_SUCCESS);
