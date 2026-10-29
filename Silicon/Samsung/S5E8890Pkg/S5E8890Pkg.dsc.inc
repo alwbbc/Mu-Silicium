@@ -70,6 +70,12 @@
   PlatformSecLib|S5E8890Pkg/Library/PlatformSecLib/PlatformSecLib.inf
 
   #
+  # Reset (EL3 only has PSCI 0.1: no SYSTEM_RESET/SYSTEM_OFF -> use the PMU)
+  #
+  HwResetSystemLib|S5E8890Pkg/Library/ResetSystemLib/ResetSystemLib.inf
+  ResetSystemLib|S5E8890Pkg/Library/ResetSystemLib/ResetSystemLib.inf
+
+  #
   # Memory Libraries
   #
   RamManagerLib|SiliciumNullPkg/Library/RamManagerLibNull/RamManagerLibNull.inf
