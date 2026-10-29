@@ -83,7 +83,8 @@ typedef struct {
 #define OFF_UCD    0x1000
 #define OFF_DATA   0x3000
 #define DATA_SIZE  0x8000
-#define UNCACHED_SIZE (OFF_DATA + DATA_SIZE)
+#define OFF_BOUNCE 0x10000          /* all I/O goes through this uncached bounce buffer */
+#define UNCACHED_SIZE (OFF_BOUNCE + MAX_XFER)
 
 typedef struct {
     PUCHAR Hci;               /* 0x155A0000 */
@@ -242,7 +243,7 @@ ULONG HwFindAdapter(PVOID DevExt, PVOID HwContext, PVOID BusInfo, PCHAR Arg,
     if (!e->Hci) { Diag(L"FindAdapterFail", 2); return SP_RETURN_ERROR; }
 
     Cfg->MaximumTransferLength = MAX_XFER;
-    Cfg->NumberOfPhysicalBreaks = 128;
+    Cfg->NumberOfPhysicalBreaks = (MAX_XFER / PAGE_SIZE) + 1;
     Cfg->AlignmentMask = 0x3;
     Cfg->ScatterGather = TRUE;
     Cfg->Master = TRUE;
@@ -450,15 +451,13 @@ BOOLEAN HwPassiveInit(PVOID DevExt)
  * LBA 1 and backup at the last LBA): HeaderSize = 92, header CRC recomputed.
  * The disk itself is not modified.
  */
-static void GptFixup(PHW_EXT e, PSCSI_REQUEST_BLOCK Srb, BOOLEAN write)
+static void GptFixup(PHW_EXT e, const UCHAR *c, PUCHAR buf, ULONG len, BOOLEAN write)
 {
     ULONGLONG lba, blk, pStart, pEnd, bStart, bEnd;
     ULONG cnt, bs = 4096;
-    PUCHAR va = NULL;
-    PUCHAR c = Srb->Cdb;
 
-    if (c[0] == 0x28 || c[0] == 0x2A) { lba = Be32(c + 2); cnt = ((ULONG)c[7] << 8) | c[8]; }
-    else if (c[0] == 0x88 || c[0] == 0x8A) { lba = ((ULONGLONG)Be32(c + 2) << 32) | Be32(c + 6); cnt = Be32(c + 10); }
+    if (c[0] == 0x28 || c[0] == 0x2A) { lba = Be32((PUCHAR)c + 2); cnt = ((ULONG)c[7] << 8) | c[8]; }
+    else if (c[0] == 0x88 || c[0] == 0x8A) { lba = ((ULONGLONG)Be32((PUCHAR)c + 2) << 32) | Be32((PUCHAR)c + 6); cnt = Be32((PUCHAR)c + 10); }
     else return;
     if (!e->OverlayValid) return;
 
@@ -472,12 +471,11 @@ static void GptFixup(PHW_EXT e, PSCSI_REQUEST_BLOCK Srb, BOOLEAN write)
     }
     for (blk = lba; blk < lba + cnt; blk++) {
         PUCHAR src;
+        if ((blk - lba + 1) * bs > len) break;
         if (blk >= pStart && blk <= pEnd) src = e->Overlay + (blk - pStart) * bs;
         else if (blk >= bStart && blk <= bEnd) src = e->Overlay + (e->EntBlocks + 1) * bs + (blk - bStart) * bs;
         else continue;
-        if ((blk - lba + 1) * bs > Srb->DataTransferLength) break;
-        if (!va && (StorPortGetSystemAddress(e, Srb, (PVOID *)&va) != STOR_STATUS_SUCCESS || !va)) return;
-        RtlCopyMemory(va + (blk - lba) * bs, src, bs);
+        RtlCopyMemory(buf + (blk - lba) * bs, src, bs);
         e->GptFixups++;
     }
 }
@@ -503,24 +501,24 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
         if (!e->Ready) { status = SRB_STATUS_BUSY; break; }
         if (Srb->DataTransferLength > MAX_XFER) { status = SRB_STATUS_INVALID_REQUEST; break; }
         {
-            SEG segs[129];
-            ULONG nsegs = 0, i;
+            SEG seg;
             UCHAR st = 0;
+            ULONG len = Srb->DataTransferLength;
             BOOLEAN toDev = (Srb->SrbFlags & SRB_FLAGS_DATA_OUT) != 0;
-            if (Srb->DataTransferLength) {
-                PSTOR_SCATTER_GATHER_LIST sg = StorPortGetScatterGatherList(e, Srb);
-                if (!sg) { status = SRB_STATUS_ERROR; break; }
-                for (i = 0; i < sg->NumberOfElements && i < 129; i++) {
-                    segs[i].Pa = sg->List[i].PhysicalAddress;
-                    segs[i].Len = sg->List[i].Length;
+            PUCHAR va = NULL, bounce = e->Base + OFF_BOUNCE;
+            if (len) {
+                if (StorPortGetSystemAddress(e, Srb, (PVOID *)&va) != STOR_STATUS_SUCCESS || !va) {
+                    status = SRB_STATUS_ERROR; break;
                 }
-                nsegs = i;
+                if (toDev) RtlCopyMemory(bounce, va, len);
+                else if (len <= 4096) RtlZeroMemory(bounce, len);
             }
-            e->LastOp = Srb->Cdb[0]; e->LastLen = Srb->DataTransferLength; e->LastSegs = nsegs;
+            seg.Pa.QuadPart = e->BasePa.QuadPart + OFF_BOUNCE;
+            seg.Len = len;
+            e->LastOp = Srb->Cdb[0]; e->LastLen = len; e->LastSegs = len ? 1 : 0;
             e->LastFlags = Srb->SrbFlags;
-            if (nsegs) { e->LastPaLo = segs[0].Pa.LowPart; e->LastPaHi = (ULONG)segs[0].Pa.HighPart; }
-            status = UfsExec(e, 0, Srb->Cdb, Srb->CdbLength, Srb->DataTransferLength, toDev,
-                             segs, nsegs, (PUCHAR)Srb->SenseInfoBuffer, Srb->SenseInfoBufferLength, &st);
+            status = UfsExec(e, 0, Srb->Cdb, Srb->CdbLength, len, toDev,
+                             &seg, len ? 1 : 0, (PUCHAR)Srb->SenseInfoBuffer, Srb->SenseInfoBufferLength, &st);
             Srb->ScsiStatus = st;
             if (status == SRB_STATUS_ERROR && Srb->Cdb[0] != 0x28 && Srb->Cdb[0] != 0x2A &&
                 Srb->Cdb[0] != 0x88 && Srb->Cdb[0] != 0x8A && Srb->SenseInfoBuffer &&
@@ -535,14 +533,11 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
                 status = SRB_STATUS_ERROR | SRB_STATUS_AUTOSENSE_VALID;
             }
             e->LastSrb = status;
-            if (status == SRB_STATUS_SUCCESS && toDev) GptFixup(e, Srb, TRUE);
-            if (status == SRB_STATUS_SUCCESS && !toDev) {
-                if (Srb->Cdb[0] == 0x25 && Srb->DataTransferLength >= 8 && Srb->DataBuffer) {
-                    /* READ CAPACITY(10) buffer is mapped (non read/write) */
-                    PUCHAR d = (PUCHAR)Srb->DataBuffer;
-                    e->LastLba = Be32(d); e->BlockSize = Be32(d + 4);
-                }
-                GptFixup(e, Srb, FALSE);
+            if (status == SRB_STATUS_SUCCESS && toDev) GptFixup(e, Srb->Cdb, NULL, len, TRUE);
+            if (status == SRB_STATUS_SUCCESS && !toDev && len) {
+                if (Srb->Cdb[0] == 0x25 && len >= 8) { e->LastLba = Be32(bounce); e->BlockSize = Be32(bounce + 4); }
+                GptFixup(e, Srb->Cdb, bounce, len, FALSE);
+                RtlCopyMemory(va, bounce, len);
             }
             if (status != SRB_STATUS_SUCCESS) LogError(e, Srb, status);
             if ((status & SRB_STATUS_AUTOSENSE_VALID) == 0 && status != SRB_STATUS_SUCCESS)
