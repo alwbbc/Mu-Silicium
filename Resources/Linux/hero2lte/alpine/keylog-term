@@ -1,2 +1,2 @@
 #!/bin/sh
-exec /usr/bin/weston-terminal --shell=/usr/bin/hero2-status
+exec /usr/bin/weston-terminal --maximized --shell=/usr/bin/hero2-status
