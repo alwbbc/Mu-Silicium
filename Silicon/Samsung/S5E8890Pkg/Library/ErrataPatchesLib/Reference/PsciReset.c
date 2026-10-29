@@ -143,14 +143,23 @@ void SmpPatch(void *loader_block)
   if (!slotpa || va_to_pa(SMP_DIAG_PA) != SMP_DIAG_PA) return;
   dbg(0, 0x5A09);
   dbg(8, slotpa);
+  {   /* boot CPU state, same layout the trampoline uses for the others (diag + 0x100) */
+    u64 sctlr, frq, vct, pct;
+    __asm__ volatile ("mrs %0, sctlr_el1\n mrs %1, cntfrq_el0\n mrs %2, cntvct_el0\n mrs %3, cntpct_el0"
+                      : "=r"(sctlr), "=r"(frq), "=r"(vct), "=r"(pct));
+    dbg(0x100, sctlr); dbg(0x108, frq); dbg(0x110, vct - pct);
+  }
 
   /* trampoline in the (low, < 4 GB) diag page: Samsung's EL3 may only take a
    * 32-bit entry point, and ntoskrnl can be loaded above 4 GB.
    * x9 = tramp, x10 = slot PA, x11 = aff0, x12 = diag + aff0*32: mark, x0 = context, br entry */
-  static const u32 tr[14] = { 0x10000009u, 0xD120012Cu, 0xF940412Au, 0xD53800ABu, 0x92401D6Bu, 0x8B0B114Du, 0xA94001A1u,
-                              0x8B0B158Cu, 0x52AF400Eu, 0x2A0B01CEu, 0xB900418Eu, 0xA9048580u, 0xD5033F9Fu, 0xD61F0020u };
+  static const u32 tr[30] = {
+    0x10000009u, 0xD120012Cu, 0xF940412Au, 0xD53800ABu, 0x92401D6Bu, 0x8B0B114Du, 0xA94001A1u, 0x8B0B198Eu,
+    0x8B0B158Cu, 0x52AF400Fu, 0x2A0B01EFu, 0xB900418Fu, 0xA9048580u, 0xD5033F9Fu, 0xD538100Fu, 0xD53BE010u,
+    0xA91041CFu, 0xD5033F9Fu, 0xD53BE04Fu, 0xD53BE030u, 0xCB1001EFu, 0xD2A22010u, 0xF2830010u, 0xB9400210u,
+    0xA91141CFu, 0x52AF600Fu, 0x2A0B01EFu, 0xB90121CFu, 0xD5033F9Fu, 0xD61F0020u };
   u64 tramp = SMP_DIAG_PA + 0x800;
-  for (u32 k = 0; k < 14; k++) ((volatile u32 *)tramp)[k] = tr[k];
+  for (u32 k = 0; k < 30; k++) ((volatile u32 *)tramp)[k] = tr[k];
   *(volatile u64 *)(tramp + 0x80) = slotpa;
   for (u64 p = tramp; p < tramp + 0xC0; p += 64) clean_poc((void *)p);
   *(u64 *)(slot + 0x80) = tramp;                                 /* entry point the hook passes */

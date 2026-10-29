@@ -42,13 +42,16 @@ SmpDiag (VOID)
   for (Cpu = 1; Cpu < 4; Cpu++)
     Print (L" | %x ctx %lx", (UINT32)D[8 + Cpu * 4], D[9 + Cpu * 4]);
   Print (L"\n");
+  for (Cpu = 0; Cpu < 4; Cpu++)        /* sctlr, cntfrq, cntvct-cntpct, gicd itargetsr0, mark2 */
+    Print (L"  c%d: sc %lx f %lx vo %lx gi %lx %x\n", Cpu, D[0x20 + Cpu * 8], D[0x21 + Cpu * 8],
+           D[0x22 + Cpu * 8], D[0x23 + Cpu * 8], (UINT32)D[0x24 + Cpu * 8]);
   if (D[1] >= 0x80000000 && D[1] < 0x900000000ull) {
     volatile UINT64 *S = (volatile UINT64 *)(UINTN)D[1];
     Print (L"  slot:");
     for (Cpu = 1; Cpu < 4; Cpu++) Print (L" %lx/%lx", S[Cpu * 2], S[Cpu * 2 + 1]);
     Print (L" tr %lx\n", S[16]);
   }
-  ZeroMem ((VOID *)D, 0x100);
+  ZeroMem ((VOID *)D, 0x200);
   D[0x40] = (D[0x40] < 1000) ? D[0x40] + 1 : 1;    /* boot counter: shows the page survives a reset */
   WriteBackInvalidateDataCacheRange ((VOID *)D, EFI_PAGE_SIZE);
 }
