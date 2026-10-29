@@ -412,6 +412,15 @@ BOOLEAN HwPassiveInit(PVOID DevExt)
                         ULONG z = 0, j;
                         for (j = 0; j < 16; j++) z |= en[j];
                         if (!z) continue;
+                        /* keep the partitions we created for Windows visible */
+                        {
+                            static const WCHAR keep1[] = L"ESP", keep2[] = L"WINDOWS";
+                            PWCHAR nm = (PWCHAR)(en + 56);
+                            ULONG l1 = 0, l2 = 0;
+                            while (l1 < 3 && nm[l1] == keep1[l1]) l1++;
+                            while (l2 < 7 && nm[l2] == keep2[l2]) l2++;
+                            if ((l1 == 3 && nm[3] == 0) || (l2 == 7 && nm[7] == 0)) continue;
+                        }
                         en[55] |= 0xC0; hidden++;
                     }
                     crc = Crc32(ent, bytes);

@@ -1,6 +1,10 @@
 /** @file
-  hero2lte boot selector: Volume Up = Windows, Volume Down = Linux,
-  Power = UEFI Shell. Defaults to Windows (if present) after 5 seconds.
+  hero2lte boot selector:
+    Volume Up   = Windows (installed; WinPE if none is installed)
+    Volume Down = Linux
+    Home        = WinPE (Windows setup / maintenance)
+    Power       = UEFI Shell
+  Defaults to Windows after 5 seconds.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -14,6 +18,8 @@
 #include <Protocol/LoadedImage.h>
 
 #define WIN_LOADER   L"\\EFI\\Boot\\bootaa64.efi"
+#define OS_LOADER    L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
+#define OS_MARKER    L"\\EFI\\Microsoft\\Boot\\BCD"
 #define WIN_MARKER   L"\\sources\\boot.wim"
 #define LNX_KERNEL   L"\\IMAGE.EFI"
 #define LNX_MARKER   L"\\HERO2LTE.DTB"
@@ -72,17 +78,19 @@ EFI_STATUS
 EFIAPI
 BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
+  EFI_HANDLE     Os  = FindVolume (OS_MARKER, OS_LOADER);
   EFI_HANDLE     Win = FindVolume (WIN_MARKER, WIN_LOADER);
   EFI_HANDLE     Lnx = FindVolume (LNX_MARKER, LNX_KERNEL);
   EFI_EVENT      Timer, Events[2];
   EFI_INPUT_KEY  Key;
   UINTN          Index, Left = 5;
-  INTN           Choice = Win ? 1 : (Lnx ? 2 : 0);
+  INTN           Choice = Os ? 3 : (Win ? 1 : (Lnx ? 2 : 0));
 
   gST->ConOut->ClearScreen (gST->ConOut);
   Print (L"\n  Galaxy S7 Edge (hero2lte) - boot menu\n\n");
-  Print (L"  Volume Up   : Windows %s\n", Win ? L"" : L"(not found)");
+  Print (L"  Volume Up   : Windows %s\n", Os ? L"" : (Win ? L"Setup (WinPE)" : L"(not found)"));
   Print (L"  Volume Down : Linux   %s\n", Lnx ? L"" : L"(not found)");
+  Print (L"  Home        : WinPE   %s\n", Win ? L"" : L"(not found)");
   Print (L"  Power       : UEFI Shell\n\n");
 
   gBS->CreateEvent (EVT_TIMER, 0, NULL, NULL, &Timer);
@@ -92,19 +100,23 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   gST->ConIn->Reset (gST->ConIn, FALSE);
 
   while (Left > 0) {
-    Print (L"\r  Default: %s in %d s ", Choice == 1 ? L"Windows" : Choice == 2 ? L"Linux" : L"Shell", Left);
+    Print (L"\r  Default: %s in %d s ", Choice == 3 ? L"Windows" : Choice == 1 ? L"WinPE" : Choice == 2 ? L"Linux" : L"Shell", Left);
     gBS->WaitForEvent (2, Events, &Index);
     if (Index == 1) { Left--; continue; }
     if (EFI_ERROR (gST->ConIn->ReadKeyStroke (gST->ConIn, &Key))) continue;
-    if (Key.ScanCode == SCAN_UP && Win)   { Choice = 1; break; }
+    if (Key.ScanCode == SCAN_UP && (Os || Win)) { Choice = Os ? 3 : 1; break; }
     if (Key.ScanCode == SCAN_DOWN && Lnx) { Choice = 2; break; }
-    if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN || Key.ScanCode == SCAN_ESC) { Choice = 0; break; }
+    if (Key.ScanCode == SCAN_ESC && Win)  { Choice = 1; break; }
+    if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN) { Choice = 0; break; }
   }
   gBS->CloseEvent (Timer);
   Print (L"\n\n");
 
-  if (Choice == 1) {
+  if (Choice == 3) {
     Print (L"  Starting Windows...\n");
+    Launch (ImageHandle, Os, OS_LOADER, NULL);
+  } else if (Choice == 1) {
+    Print (L"  Starting WinPE...\n");
     Launch (ImageHandle, Win, WIN_LOADER, NULL);
   } else if (Choice == 2) {
     Print (L"  Starting Linux...\n");
