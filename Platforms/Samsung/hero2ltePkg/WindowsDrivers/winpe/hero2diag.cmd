@@ -75,7 +75,9 @@ if exist W:\Windows\Panther\unattend.xml move /y W:\Windows\Panther\unattend.xml
 echo [+] OOBE atlanacak: ilk acilista S7 hesabi olusturulacak
 :nooobe
 echo [+] dokunmatik:
-reg query HKLM\OFFSYS\ControlSet001\Services\hero2touch\Parameters 2>nul | find "REG_"
+reg query HKLM\OFFSYS\ControlSet001\Services\hero2touch\Parameters 2>nul | findstr "Feat Touch MouseReps ReadsDone"
+echo [+] HID aygitlari:
+reg query HKLM\OFFSYS\ControlSet001\Enum\HID /s /v Service 2>nul | findstr /i "Col0 Service"
 reg unload HKLM\OFFSYS >nul
 echo.
 echo FOTOGRAF CEK. Ekrana dokunup imleci dene. 60 saniye sonra telefon yeniden baslayacak.
