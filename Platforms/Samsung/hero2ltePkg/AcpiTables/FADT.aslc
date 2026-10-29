@@ -28,11 +28,14 @@ EFI_ACPI_6_6_FIXED_ACPI_DESCRIPTION_TABLE FadtTable = {
   //
   // Flags
   //
-  .Flags              = EFI_ACPI_6_6_HW_REDUCED_ACPI | EFI_ACPI_6_6_LOW_POWER_S0_IDLE_CAPABLE,
-  // Samsung EL3 implements PSCI 0.1 only (no SYSTEM_RESET/OFF, no PSCI_VERSION):
-  // claiming PSCI makes Windows bugcheck 0xA0 on restart. Without the flag,
-  // Windows resets through EFI ResetSystem (PMU SWRESET, see S5E8890Pkg).
-  .ArmBootArch        = 0,
+  .Flags              = EFI_ACPI_6_6_HW_REDUCED_ACPI | EFI_ACPI_6_6_LOW_POWER_S0_IDLE_CAPABLE |
+                        EFI_ACPI_6_6_RESET_REG_SUP,
+  // Windows ARM64 will not start without the PSCI flag. Samsung's EL3 only has
+  // PSCI 0.1 (no SYSTEM_RESET), so also offer the ACPI reset register:
+  // PMU SWRESET (0x105C0400), write 1.
+  .ArmBootArch        = EFI_ACPI_6_6_ARM_PSCI_COMPLIANT,
+  .ResetReg           = { EFI_ACPI_6_6_SYSTEM_MEMORY, 32, 0, EFI_ACPI_6_6_DWORD, 0x105C0400 },
+  .ResetValue         = 1,
 
   //
   // Hypervisor
