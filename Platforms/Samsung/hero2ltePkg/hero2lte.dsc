@@ -70,6 +70,7 @@
   # Boot Options (adds UEFI Shell)
   #
   PlatformBootOptionsLib|hero2ltePkg/Library/PlatformBootOptionsLib/PlatformBootOptionsLib.inf
+  MsBootOptionsLib|hero2ltePkg/Library/MsBootOptionsLib/MsBootOptionsLib.inf
 
 [Components]
   #

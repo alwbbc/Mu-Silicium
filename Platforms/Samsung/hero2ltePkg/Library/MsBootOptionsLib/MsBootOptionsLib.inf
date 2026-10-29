@@ -1,0 +1,50 @@
+##
+#  Copyright (C) Microsoft Corporation. All rights reserved.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = MsBootOptionsLib
+  FILE_GUID                      = 5B2E7C1A-0F3D-4E8B-9C52-8890E2A71C55
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = MsBootOptionsLib|DXE_DRIVER
+
+[Sources]
+  MsBootOptionsLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  PcBdsPkg/PcBdsPkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  DevicePathLib
+  DxeServicesLib
+  UefiBootManagerLib
+  UefiBootServicesTableLib
+  PlatformBootOptionsLib
+  MemoryAllocationLib
+  UefiLib
+  PcdLib
+  UefiRuntimeServicesTableLib
+
+[Guids]
+  gEfiGlobalVariableGuid
+  gMsBootPolicyFileGuid
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiFirmwareVolume2ProtocolGuid
+
+[FixedPcd]
+  gSiliciumPkgTokenSpaceGuid.PcdUfpLoaderFile
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile
+
+[Depex]
+  TRUE
