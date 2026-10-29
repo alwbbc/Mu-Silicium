@@ -84,6 +84,11 @@
   SiliciumPkg/Drivers/KeypadDeviceDxe/KeypadDeviceDxe.inf
 
   #
+  # Boot selector (VolUp Windows / VolDown Linux)
+  #
+  hero2ltePkg/Applications/BootSel/BootSel.inf
+
+  #
   # UEFI Shell
   #
   ShellPkg/Application/Shell/Shell.inf {

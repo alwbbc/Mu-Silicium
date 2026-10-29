@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Build a FAT32 WinPE volume for hero2lte from a Windows ARM64 ISO (or an extracted tree).
-usage: hero2lte_winpe.py <Win11_ARM64.iso | extracted_dir> <out.img>
+usage: hero2lte_winpe.py <Win11_ARM64.iso | extracted_dir> <out.img> [--wim boot.wim] [--bcd BCD] [--add dst=src ...]
 Needs: pycdlib (for ISO input), mkfat32.py next to this script."""
 import os, sys, shutil, subprocess, tempfile
-src, out = sys.argv[1], sys.argv[2]
+import argparse
+ap = argparse.ArgumentParser(); ap.add_argument('src'); ap.add_argument('out')
+ap.add_argument('--wim'); ap.add_argument('--bcd'); ap.add_argument('--add', action='append', default=[])
+args = ap.parse_args(); src, out = args.src, args.out
 here = os.path.dirname(os.path.abspath(__file__))
 stage = tempfile.mkdtemp(prefix='winpe_')
 WANT = ['efi/', 'boot/boot.sdi', 'boot/bcd', 'sources/boot.wim', 'bootmgr.efi']
@@ -38,6 +41,17 @@ else:
 lower = {os.path.relpath(os.path.join(r, f), stage).replace('\\','/').lower() for r, _, fs in os.walk(stage) for f in fs}
 for need in ['efi/boot/bootaa64.efi', 'efi/microsoft/boot/bcd', 'boot/boot.sdi', 'sources/boot.wim']:
     if need not in lower: sys.exit('missing ' + need + ' (is this an ARM64 ISO?)')
+def override(rel, path):
+    for r, _, fs in os.walk(stage):
+        for f in fs:
+            full = os.path.join(r, f)
+            if os.path.relpath(full, stage).replace('\\', '/').lower() == rel:
+                shutil.copy2(path, full); print('override', rel); return
+    dst = os.path.join(stage, rel); os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copy2(path, dst)
+if args.wim: override('sources/boot.wim', args.wim)
+if args.bcd: override('efi/microsoft/boot/bcd', args.bcd)
+for a in args.add:
+    d, p = a.split('=', 1); override(d.lower(), p)
 subprocess.check_call([sys.executable, os.path.join(here, 'mkfat32.py'), stage, out, 'WINPE', '64'])
 shutil.rmtree(stage)
 print('done ->', out)

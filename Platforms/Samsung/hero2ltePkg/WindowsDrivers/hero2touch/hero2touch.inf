@@ -1,0 +1,64 @@
+; hero2touch.inf - Galaxy S7 Edge (hero2lte) touchscreen as HID pointer
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %Prov%
+DriverVer   = 10/29/2026,1.0.0.0
+CatalogFile = hero2touch.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %Disk%
+
+[SourceDisksFiles]
+hero2touch.sys = 1
+
+[Manufacturer]
+%Prov% = Std, NTarm64
+
+[Std.NTarm64]
+%Dev% = Touch_Inst, ACPI\HERO0552
+
+[Touch_Inst.NT]
+CopyFiles = Touch_Copy
+
+[Touch_Copy]
+hero2touch.sys
+
+[Touch_Inst.NT.HW]
+AddReg = Touch_HW
+
+[Touch_HW]
+HKR,,"LowerFilters",0x00010000,"hero2touch"
+
+[Touch_Inst.NT.Services]
+AddService = hero2touch,, Touch_Svc
+AddService = mshidkmdf, 0x00000002, mshidkmdf_Svc
+
+[Touch_Svc]
+DisplayName   = %Dev%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %13%\hero2touch.sys
+
+[mshidkmdf_Svc]
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\mshidkmdf.sys
+
+[Touch_Inst.NT.Wdf]
+KmdfService = hero2touch, Touch_Wdf
+
+[Touch_Wdf]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Prov = "Project Silicium hero2lte"
+Disk = "hero2touch disk"
+Dev  = "S6SA552 Touchscreen (hero2lte)"
