@@ -23,11 +23,11 @@
 
 /* ---- SMP probe: can Samsung's EL3 start the other A53 cores? ---------- */
 /* secondary entry (MMU off): box = page+0x800 (PC relative), per CPU 32 bytes:
- * +0 0xC0DE0000|CurrentEL, +8/+16/+24 = x0/x1/x2 at entry; then PSCI CPU_OFF */
+ * +0 0xC0DE0000|CurrentEL, +8/+16 = x0/x1 at entry, +24 GICD_ITARGETSR0; then PSCI CPU_OFF */
 STATIC CONST UINT32 mCpuProbeCode[] = {
-  0x10004009, 0xD53800AB, 0x92401D6B, 0x8B0B152A, 0xF9000540, 0xF9000941, 0xF9000D42, 0xD538424C,
-  0x52B81BCD, 0x2A0C01AD, 0xB900014D, 0xD5033F9F, 0x52B08000, 0x72800040, 0xD4000003, 0xD503205F,
-  0x17FFFFFF
+  0x10004009, 0xD53800AB, 0x92401D6B, 0x8B0B152A, 0xF9000540, 0xF9000941, 0xD2A2200C, 0xF283000C,
+  0xB940018C, 0xF9000D4C, 0xD538424C, 0x52B81BCD, 0x2A0C01AD, 0xB900014D, 0xD5033F9F, 0x52B08000,
+  0x72800040, 0xD4000003, 0xD503205F, 0x17FFFFFF
 };
 
 /* log left by the previous Windows boot (ErrataPatchesLib SmpPatch) */
@@ -64,7 +64,8 @@ CpuProbe (VOID)
   ARM_SMC_ARGS         Args;
   UINTN                Cpu, Wait;
 
-  Print (L"  CPU0 MPIDR %lx EL%d\n", ArmReadMpidr (), (UINT32)(ArmReadCurrentEL () >> 2));
+  Print (L"  CPU0 MPIDR %lx EL%d gicd_itargetsr0=%08x\n", ArmReadMpidr (), (UINT32)(ArmReadCurrentEL () >> 2),
+         *(volatile UINT32 *)(UINTN)0x11001800);
   if (EFI_ERROR (gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesCode, 1, &Page))) return;
   ZeroMem ((VOID *)(UINTN)Page, EFI_PAGE_SIZE);
   CopyMem ((VOID *)(UINTN)Page, mCpuProbeCode, sizeof (mCpuProbeCode));
@@ -89,8 +90,8 @@ CpuProbe (VOID)
       if (Box[Cpu * 8]) break;
       gBS->Stall (1000);
     }
-    Print (L"  CPU_ON 0x10%d -> %d, mark %08x (%d ms) x0=%lx x1=%lx x2=%lx\n", Cpu, (INT32)Args.Arg0, Box[Cpu * 8], Wait,
-           *(volatile UINT64 *)&Box[Cpu * 8 + 2], *(volatile UINT64 *)&Box[Cpu * 8 + 4], *(volatile UINT64 *)&Box[Cpu * 8 + 6]);
+    Print (L"  CPU_ON 0x10%d -> %d, mark %08x (%d ms) gicd_itargetsr0=%08x\n", Cpu, (INT32)Args.Arg0, Box[Cpu * 8], Wait,
+           Box[Cpu * 8 + 6]);
   }
 }
 
@@ -217,7 +218,7 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Print (L"  Volume Down : Linux   %s\n", Lnx ? L"" : L"(not found)");
   Print (L"  Home        : WinPE   %s\n", Win ? L"" : L"(not found)");
   Print (L"  Power       : UEFI Shell\n\n");
-  if (gST->ConIn != NULL && 0) CpuProbe ();   /* SMP probe, kept for debugging */
+  CpuProbe ();   /* SMP probe (GIC CPU interface of each A53 core) */
   SmpDiag ();
   Print (L"\n");
 
