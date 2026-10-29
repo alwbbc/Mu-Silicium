@@ -1,0 +1,64 @@
+#!/usr/bin/python3
+# hero2-term: VTE terminal with a built-in touch keyboard (no physical keyboard needed)
+import gi
+gi.require_version('Gtk', '3.0'); gi.require_version('Vte', '2.91')
+from gi.repository import Gtk, Vte, GLib, Pango, Gdk
+
+LAYERS = {
+ 'abc': [list('1234567890'), list('qwertyuiop'), list('asdfghjkl'),
+         ['⇧'] + list('zxcvbnm') + ['⌫'], ['Ctrl', '?123', 'Tab', ' ', '-', '/', '.', '⏎']],
+ 'sym': [list('!@#$%^&*()'), list('~`|\\"\':;=+'), list('<>[]{}_,?'),
+         ['Esc', '←', '↑', '↓', '→', 'Home', 'End', '⌫'], ['Ctrl', 'abc', 'Tab', ' ', 'PgUp', 'PgDn', '^C', '⏎']],
+}
+SEQ = {'⌫': b'\x7f', '⏎': b'\r', 'Tab': b'\t', 'Esc': b'\x1b', '←': b'\x1b[D', '↑': b'\x1b[A',
+       '↓': b'\x1b[B', '→': b'\x1b[C', 'Home': b'\x1b[H', 'End': b'\x1b[F', 'PgUp': b'\x1b[5~',
+       'PgDn': b'\x1b[6~', '^C': b'\x03'}
+
+class App(Gtk.Window):
+    def __init__(self):
+        super().__init__(title='hero2-term')
+        self.shift = self.ctrl = False; self.layer = 'abc'
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL); self.add(box)
+        self.term = Vte.Terminal(); self.term.set_font(Pango.FontDescription('DejaVu Sans Mono 8'))
+        self.term.set_scrollback_lines(5000)
+        self.term.spawn_async(Vte.PtyFlags.DEFAULT, '/root', ['/bin/sh', '-l'],
+                              ['TERM=xterm-256color', 'HOME=/root', 'PATH=/usr/sbin:/usr/bin:/sbin:/bin'],
+                              GLib.SpawnFlags.DEFAULT, None, None, -1, None, None)
+        self.term.connect('child-exited', lambda *a: Gtk.main_quit())
+        sw = Gtk.ScrolledWindow(); sw.add(self.term); sw.set_vexpand(True)
+        box.pack_start(sw, True, True, 0)
+        self.kb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.pack_start(self.kb, False, False, 0)
+        css = Gtk.CssProvider(); css.load_from_data(b'''
+          .key { font-size: 15px; padding: 0; min-height: 44px; min-width: 10px; }
+          .mod-on { background: #3584e4; color: white; }''')
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, 600)
+        self.build(); self.maximize(); self.show_all(); self.term.grab_focus()
+
+    def build(self):
+        for c in self.kb.get_children(): self.kb.remove(c)
+        for row in LAYERS[self.layer]:
+            hb = Gtk.Box(spacing=2, homogeneous=False)
+            for k in row:
+                label = k.upper() if (self.shift and len(k) == 1 and k.isalpha()) else ('Space' if k == ' ' else k)
+                b = Gtk.Button(label=label); b.set_can_focus(False); b.get_style_context().add_class('key')
+                if (k == '⇧' and self.shift) or (k == 'Ctrl' and self.ctrl): b.get_style_context().add_class('mod-on')
+                b.connect('clicked', self.press, k)
+                hb.pack_start(b, True, True, 0)
+                if k == ' ': hb.child_set_property(b, 'expand', True); b.set_size_request(120, -1)
+            self.kb.pack_start(hb, False, False, 0)
+        self.kb.show_all()
+
+    def press(self, _b, k):
+        if k == '⇧': self.shift = not self.shift; return self.build()
+        if k == 'Ctrl': self.ctrl = not self.ctrl; return self.build()
+        if k in ('?123', 'abc'): self.layer = 'sym' if k == '?123' else 'abc'; return self.build()
+        if k in SEQ: data = SEQ[k]
+        else:
+            ch = k.upper() if self.shift else k
+            if self.ctrl and ch.isalpha(): data = bytes([ord(ch.lower()) & 0x1f])
+            else: data = ch.encode()
+        self.term.feed_child(data)
+        if self.shift or self.ctrl: self.shift = self.ctrl = False; self.build()
+
+App(); Gtk.main()

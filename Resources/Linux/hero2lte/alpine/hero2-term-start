@@ -1,0 +1,3 @@
+#!/bin/sh
+# start touch terminal; fall back to the key-logger terminal if GTK fails
+/usr/bin/hero2-term >/tmp/hero2-term.log 2>&1 || exec /usr/bin/keylog-term
