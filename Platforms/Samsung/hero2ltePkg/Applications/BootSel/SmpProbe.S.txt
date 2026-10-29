@@ -1,0 +1,100 @@
+  .text
+  .globl _start
+// probe: which EL1 operations hang on a freshly started core
+// box = _start+0x800, per cpu 32 bytes: +0 mark, +8 step reached, +16 x1
+.macro STEP n
+  mov x12, #\n
+  str x12, [x10, #8]
+  dsb sy
+.endm
+_start:
+  adr x9, _start + 0x800
+  mrs x11, mpidr_el1
+  and x11, x11, #0xff
+  add x10, x9, x11, lsl #5
+  str x1, [x10, #16]
+  movz w13, #0xC0DE, lsl #16
+  str w13, [x10]
+  STEP 1
+  mrs x12, actlr_el1
+  msr actlr_el1, x12
+  STEP 2
+  mrs x12, mair_el1
+  msr mair_el1, x12
+  mrs x12, tcr_el1
+  msr tcr_el1, x12
+  STEP 3
+  mrs x12, ttbr0_el1
+  msr ttbr0_el1, x12
+  mrs x12, ttbr1_el1
+  msr ttbr1_el1, x12
+  STEP 4
+  mrs x12, sctlr_el1
+  msr sctlr_el1, x12
+  isb
+  STEP 5
+  mrs x12, id_aa64mmfr0_el1
+  mrs x12, id_aa64pfr0_el1
+  mrs x12, id_aa64isar0_el1
+  STEP 6
+  tlbi vmalle1
+  dsb sy
+  isb
+  STEP 7
+  mov x12, #0
+  dc cisw, x12
+  dsb sy
+  STEP 8
+  ic iallu
+  dsb sy
+  isb
+  STEP 9
+  mrs x12, cpacr_el1
+  orr x12, x12, #0x300000
+  msr cpacr_el1, x12
+  isb
+  fmov d0, xzr
+  STEP 10
+  mrs x12, cntkctl_el1
+  msr cntkctl_el1, x12
+  mrs x12, cntp_ctl_el0
+  msr cntp_ctl_el0, xzr
+  STEP 11
+  mrs x12, vbar_el1
+  msr vbar_el1, x12
+  STEP 12
+  mrs x12, mdscr_el1
+  STEP 13
+  mrs x12, pmcr_el0
+  STEP 14
+  mrs x12, contextidr_el1
+  msr contextidr_el1, x12
+  mrs x12, tpidr_el1
+  msr tpidr_el1, x12
+  STEP 15
+  dc civac, x10
+  dsb sy
+  mrs x12, ctr_el0
+  mrs x12, clidr_el1
+  STEP 16
+  msr csselr_el1, xzr
+  isb
+  mrs x12, ccsidr_el1
+  STEP 17
+  mrs x12, oslsr_el1
+  msr oslar_el1, xzr
+  STEP 18
+  mrs x12, par_el1
+  at s1e1r, x10
+  isb
+  STEP 19
+  mrs x12, afsr0_el1
+  mrs x12, amair_el1
+  msr amair_el1, x12
+  STEP 20
+  movz w0, #0x8400, lsl #16
+  movk w0, #0x2
+  smc #0
+1:
+  wfe
+  b 1b
