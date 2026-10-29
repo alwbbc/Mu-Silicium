@@ -11,6 +11,7 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
 
 [LibraryClasses]
   UefiApplicationEntryPoint
@@ -21,6 +22,9 @@
   DevicePathLib
   PrintLib
   UefiRuntimeServicesTableLib
+  ArmSmcLib
+  ArmLib
+  CacheMaintenanceLib
 
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid

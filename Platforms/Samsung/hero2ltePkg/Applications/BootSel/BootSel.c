@@ -17,6 +17,53 @@
 #include <Protocol/SimpleFileSystem.h>
 #include <Protocol/LoadedImage.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+#include <Library/ArmSmcLib.h>
+#include <Library/ArmLib.h>
+#include <Library/CacheMaintenanceLib.h>
+
+/* ---- SMP probe: can Samsung's EL3 start the other A53 cores? ---------- */
+/* secondary entry (MMU off, x0 = mailbox): mailbox[aff0] = 0xC0DE0000|CurrentEL,
+ * then PSCI CPU_OFF */
+STATIC CONST UINT32 mCpuProbeCode[] = {
+  0xD53800A1, 0x92401C21, 0xD5384242, 0x52B81BC3, 0x2A020063, 0xB8217803, 0xD5033F9F,
+  0xD50B7E20, 0xD5033F9F, 0x52B08000, 0x72800040, 0xD4000003, 0xD503205F, 0x17FFFFFF
+};
+
+STATIC VOID
+CpuProbe (VOID)
+{
+  EFI_PHYSICAL_ADDRESS Page = 0xFFFFFFFF;
+  volatile UINT32     *Box;
+  ARM_SMC_ARGS         Args;
+  UINTN                Cpu, Wait;
+
+  Print (L"  CPU0 MPIDR %lx EL%d\n", ArmReadMpidr (), (UINT32)(ArmReadCurrentEL () >> 2));
+  if (EFI_ERROR (gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesCode, 1, &Page))) return;
+  ZeroMem ((VOID *)(UINTN)Page, EFI_PAGE_SIZE);
+  CopyMem ((VOID *)(UINTN)Page, mCpuProbeCode, sizeof (mCpuProbeCode));
+  Box = (volatile UINT32 *)(UINTN)(Page + 0x800);
+  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Page, EFI_PAGE_SIZE);
+  InvalidateInstructionCacheRange ((VOID *)(UINTN)Page, EFI_PAGE_SIZE);
+
+  Args.Arg0 = 0x84000000;                    /* PSCI_VERSION */
+  ArmCallSmc (&Args);
+  Print (L"  PSCI_VERSION -> %lx\n", Args.Arg0);
+
+  for (Cpu = 1; Cpu < 4; Cpu++) {
+    ZeroMem (&Args, sizeof (Args));
+    Args.Arg0 = 0xC4000003;                  /* CPU_ON */
+    Args.Arg1 = 0x100 | Cpu;
+    Args.Arg2 = Page;
+    Args.Arg3 = (UINTN)Box;
+    ArmCallSmc (&Args);
+    for (Wait = 0; Wait < 200; Wait++) {
+      InvalidateDataCacheRange ((VOID *)Box, 64);
+      if (Box[Cpu]) break;
+      gBS->Stall (1000);
+    }
+    Print (L"  CPU_ON 0x10%d -> %d, mark %08x (%d ms)\n", Cpu, (INT32)Args.Arg0, Box[Cpu], Wait);
+  }
+}
 
 /* set before handing control to the UEFI Shell, so the BOOTSEL.EFI that the
  * Shell's startup.nsh runs does not bring the menu straight back */
@@ -141,6 +188,8 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Print (L"  Volume Down : Linux   %s\n", Lnx ? L"" : L"(not found)");
   Print (L"  Home        : WinPE   %s\n", Win ? L"" : L"(not found)");
   Print (L"  Power       : UEFI Shell\n\n");
+  CpuProbe ();
+  Print (L"\n");
 
   gBS->CreateEvent (EVT_TIMER, 0, NULL, NULL, &Timer);
   gBS->SetTimer (Timer, TimerPeriodic, 10000000);  /* 1 s */
