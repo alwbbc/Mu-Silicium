@@ -96,6 +96,9 @@ typedef struct {
     ULONG LastOp, LastSrb, LastLen, LastSegs, LastPaLo, LastPaHi, LastFlags;
     ULONG ErrLog[8], ErrLba[8], ErrN;
     ULONG BlockSize, LastLba, GptFixups;
+    PUCHAR Overlay;            /* primary: hdr + entries, then backup: entries + hdr */
+    ULONG EntBlocks;
+    BOOLEAN OverlayValid;
     BOOLEAN Ready;
 } HW_EXT, *PHW_EXT;
 
@@ -380,30 +383,57 @@ BOOLEAN HwPassiveInit(PVOID DevExt)
         rc = TestIn(e, rd, 10, bs, &st);
         Diag(L"T3_ReadSrb", rc); Diag(L"T3_ReadOcs", e->LastOcs); Diag(L"T3_ReadScsi", st);
         Diag(L"T3_Lba1_0", Be32(d)); Diag(L"T3_Lba1_4", Be32(d + 4));
-        if (rc == SRB_STATUS_SUCCESS) {
-            /* GPT header checks the way Windows does them */
-            ULONG hsz = Le32(d + 12), hcrc = Le32(d + 16), calc;
+        if (rc == SRB_STATUS_SUCCESS && RtlCompareMemory(d, "EFI PART", 8) == 8) {
+            UCHAR hdr[512];
+            ULONG hsz = Le32(d + 12), hcrc = Le32(d + 16);
             ULONG entLba = Le32(d + 72), nEnt = Le32(d + 80), entSz = Le32(d + 84), ecrc = Le32(d + 88);
+            RtlCopyMemory(hdr, d, sizeof(hdr));
             Diag(L"G_HeaderSize", hsz);
-            Diag(L"G_MyLba", Le32(d + 24));
             Diag(L"G_AltLba", Le32(d + 32));
-            Diag(L"G_FirstUsable", Le32(d + 40));
-            Diag(L"G_LastUsable", Le32(d + 48));
             Diag(L"G_EntriesLba", entLba);
             Diag(L"G_NumEntries", nEnt);
-            Diag(L"G_EntrySize", entSz);
-            if (hsz >= 92 && hsz <= bs) {
-                d[16] = d[17] = d[18] = d[19] = 0;
-                calc = Crc32(d, hsz);
-                Diag(L"G_HdrCrcOk", calc == hcrc);
-            }
-            if (nEnt && entSz && nEnt * entSz <= DATA_SIZE) {
-                ULONG bytes = nEnt * entSz, blocks = (bytes + bs - 1) / bs;
-                UCHAR rd2[10] = { 0x28, 0, (UCHAR)(entLba >> 24), (UCHAR)(entLba >> 16), (UCHAR)(entLba >> 8), (UCHAR)entLba,
-                                  0, (UCHAR)(blocks >> 8), (UCHAR)blocks, 0 };
+            if (hsz >= 92 && hsz <= 512) { d[16] = d[17] = d[18] = d[19] = 0; Diag(L"G_HdrCrcOk", Crc32(d, hsz) == hcrc); }
+            if (entLba == 2 && nEnt && entSz == 128 && nEnt * entSz <= DATA_SIZE && bs == 4096 && e->LastLba) {
+                ULONG bytes = nEnt * entSz, blocks = (bytes + bs - 1) / bs, k, crc;
+                UCHAR rd2[10] = { 0x28, 0, 0, 0, 0, 2, 0, 0, (UCHAR)blocks, 0 };
                 rc = TestIn(e, rd2, 10, blocks * bs, &st);
                 Diag(L"G_EntReadSrb", rc);
-                if (rc == SRB_STATUS_SUCCESS) Diag(L"G_EntCrcOk", Crc32(d, bytes) == ecrc);
+                if (rc == SRB_STATUS_SUCCESS && Crc32(d, bytes) == ecrc &&
+                    StorPortAllocatePool(e, (blocks + 1) * bs * 2, 'fUoH', (PVOID *)&e->Overlay) == STOR_STATUS_SUCCESS) {
+                    PUCHAR P = e->Overlay, B = e->Overlay + (blocks + 1) * bs, ent = P + bs, h;
+                    ULONG hidden = 0;
+                    RtlZeroMemory(P, (blocks + 1) * bs * 2);
+                    RtlCopyMemory(ent, d, blocks * bs);
+                    /* hide every Android partition from the Windows mount manager:
+                     * GPT attribute bits 62 (hidden) and 63 (no drive letter) */
+                    for (k = 0; k < nEnt; k++) {
+                        PUCHAR en = ent + k * entSz;
+                        ULONG z = 0, j;
+                        for (j = 0; j < 16; j++) z |= en[j];
+                        if (!z) continue;
+                        en[55] |= 0xC0; hidden++;
+                    }
+                    crc = Crc32(ent, bytes);
+                    /* primary header (LBA 1) */
+                    h = P;
+                    RtlCopyMemory(h, hdr, 92);
+                    h[12] = 92; h[13] = h[14] = h[15] = 0;
+                    h[88] = (UCHAR)crc; h[89] = (UCHAR)(crc >> 8); h[90] = (UCHAR)(crc >> 16); h[91] = (UCHAR)(crc >> 24);
+                    h[16] = h[17] = h[18] = h[19] = 0;
+                    k = Crc32(h, 92); h[16] = (UCHAR)k; h[17] = (UCHAR)(k >> 8); h[18] = (UCHAR)(k >> 16); h[19] = (UCHAR)(k >> 24);
+                    /* backup: entries at LastLba-blocks, header at LastLba */
+                    RtlCopyMemory(B, ent, blocks * bs);
+                    h = B + blocks * bs;
+                    RtlCopyMemory(h, P, 92);
+                    {   ULONGLONG my = e->LastLba, alt = 1, el = e->LastLba - blocks; ULONG j;
+                        for (j = 0; j < 8; j++) { h[24 + j] = (UCHAR)(my >> (8 * j)); h[32 + j] = (UCHAR)(alt >> (8 * j)); h[72 + j] = (UCHAR)(el >> (8 * j)); } }
+                    h[16] = h[17] = h[18] = h[19] = 0;
+                    k = Crc32(h, 92); h[16] = (UCHAR)k; h[17] = (UCHAR)(k >> 8); h[18] = (UCHAR)(k >> 16); h[19] = (UCHAR)(k >> 24);
+                    e->EntBlocks = blocks;
+                    e->OverlayValid = TRUE;
+                    Diag(L"G_Overlay", 1);
+                    Diag(L"G_HiddenParts", hidden);
+                }
             }
         } }
 
@@ -420,32 +450,34 @@ BOOLEAN HwPassiveInit(PVOID DevExt)
  * LBA 1 and backup at the last LBA): HeaderSize = 92, header CRC recomputed.
  * The disk itself is not modified.
  */
-static void GptFixup(PHW_EXT e, PSCSI_REQUEST_BLOCK Srb)
+static void GptFixup(PHW_EXT e, PSCSI_REQUEST_BLOCK Srb, BOOLEAN write)
 {
-    ULONGLONG lba, blk;
-    ULONG cnt, bs = e->BlockSize ? e->BlockSize : 4096;
+    ULONGLONG lba, blk, pStart, pEnd, bStart, bEnd;
+    ULONG cnt, bs = 4096;
     PUCHAR va = NULL;
     PUCHAR c = Srb->Cdb;
 
-    if (c[0] == 0x28) { lba = Be32(c + 2); cnt = ((ULONG)c[7] << 8) | c[8]; }
-    else if (c[0] == 0x88) { lba = ((ULONGLONG)Be32(c + 2) << 32) | Be32(c + 6); cnt = Be32(c + 10); }
+    if (c[0] == 0x28 || c[0] == 0x2A) { lba = Be32(c + 2); cnt = ((ULONG)c[7] << 8) | c[8]; }
+    else if (c[0] == 0x88 || c[0] == 0x8A) { lba = ((ULONGLONG)Be32(c + 2) << 32) | Be32(c + 6); cnt = Be32(c + 10); }
     else return;
+    if (!e->OverlayValid) return;
 
+    pStart = 1; pEnd = 1 + e->EntBlocks;                         /* inclusive */
+    bStart = e->LastLba - e->EntBlocks; bEnd = e->LastLba;
+
+    if (write) {
+        if (!(lba + cnt - 1 < pStart || lba > pEnd) || !(lba + cnt - 1 < bStart || lba > bEnd))
+            e->OverlayValid = FALSE;                             /* Windows rewrote the GPT */
+        return;
+    }
     for (blk = lba; blk < lba + cnt; blk++) {
-        PUCHAR h;
-        if (blk != 1 && !(e->LastLba && blk == e->LastLba)) continue;
+        PUCHAR src;
+        if (blk >= pStart && blk <= pEnd) src = e->Overlay + (blk - pStart) * bs;
+        else if (blk >= bStart && blk <= bEnd) src = e->Overlay + (e->EntBlocks + 1) * bs + (blk - bStart) * bs;
+        else continue;
         if ((blk - lba + 1) * bs > Srb->DataTransferLength) break;
-        if (!va && StorPortGetSystemAddress(e, Srb, (PVOID *)&va) != STOR_STATUS_SUCCESS) return;
-        if (!va) return;
-        h = va + (blk - lba) * bs;
-        if (RtlCompareMemory(h, "EFI PART", 8) != 8) continue;
-        if (Le32(h + 12) == 92) continue;
-        h[12] = 92; h[13] = h[14] = h[15] = 0;
-        h[16] = h[17] = h[18] = h[19] = 0;
-        {
-            ULONG crc = Crc32(h, 92);
-            h[16] = (UCHAR)crc; h[17] = (UCHAR)(crc >> 8); h[18] = (UCHAR)(crc >> 16); h[19] = (UCHAR)(crc >> 24);
-        }
+        if (!va && (StorPortGetSystemAddress(e, Srb, (PVOID *)&va) != STOR_STATUS_SUCCESS || !va)) return;
+        RtlCopyMemory(va + (blk - lba) * bs, src, bs);
         e->GptFixups++;
     }
 }
@@ -503,13 +535,14 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
                 status = SRB_STATUS_ERROR | SRB_STATUS_AUTOSENSE_VALID;
             }
             e->LastSrb = status;
+            if (status == SRB_STATUS_SUCCESS && toDev) GptFixup(e, Srb, TRUE);
             if (status == SRB_STATUS_SUCCESS && !toDev) {
                 if (Srb->Cdb[0] == 0x25 && Srb->DataTransferLength >= 8 && Srb->DataBuffer) {
                     /* READ CAPACITY(10) buffer is mapped (non read/write) */
                     PUCHAR d = (PUCHAR)Srb->DataBuffer;
                     e->LastLba = Be32(d); e->BlockSize = Be32(d + 4);
                 }
-                GptFixup(e, Srb);
+                GptFixup(e, Srb, FALSE);
             }
             if (status != SRB_STATUS_SUCCESS) LogError(e, Srb, status);
             if ((status & SRB_STATUS_AUTOSENSE_VALID) == 0 && status != SRB_STATUS_SUCCESS)
