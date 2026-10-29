@@ -245,12 +245,24 @@ static NTSTATUS I2cWrite(PUCHAR r, UCHAR addr, const UCHAR *data, ULONG len)
     return I2cMsg(r, addr, FALSE, tmp, len, TRUE);
 }
 
+/* ---- diagnostics: HKLM\...\Services\hero2touch\Parameters\<name> ---- */
+static void Diag(PCWSTR name, ULONG value)
+{
+    WDFKEY key; UNICODE_STRING n;
+    if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(WdfGetDriver(), KEY_WRITE, WDF_NO_OBJECT_ATTRIBUTES, &key)))
+        return;
+    RtlInitUnicodeString(&n, name);
+    WdfRegistryAssignULong(key, &n, value);
+    WdfRegistryClose(key);
+}
+
 /* ---- hardware bring-up ------------------------------------------------- */
 static NTSTATUS PmicLdoOn(PDEV_CTX c, UCHAR reg, UCHAR vsel)
 {
     UCHAR v = 0, w[2];
     NTSTATUS st = I2cReadReg(c->I2c15, PMIC_ADDR, reg, &v, 1);
     DBG("PMIC reg %02x = %02x (st %x)", reg, v, st);
+    Diag(reg == PMIC_L32CTRL ? L"PmicL32Before" : L"PmicL33Before", NT_SUCCESS(st) ? v : (ULONG)st);
     if (!NT_SUCCESS(st)) return st;
     w[0] = reg; w[1] = (UCHAR)(0xC0 | (vsel & 0x3F));
     if (v == w[1]) return STATUS_SUCCESS;
@@ -274,6 +286,11 @@ static NTSTATUS HwInit(PDEV_CTX c)
         !c->PinTouch || !c->I2c7 || !c->I2c15)
         return STATUS_INSUFFICIENT_RESOURCES;
 
+    Diag(L"Stage", 1);
+    Diag(L"CmuPeric1_804", Rd(c->CmuPeric1, 0x804));
+    Diag(L"CmuCcore_900", Rd(c->CmuCcore, 0x900));
+    Diag(L"GpioA0Dat", Rd(c->PinAlive, 0x4));
+    Diag(L"GpioA1Con", Rd(c->PinAlive + 0x20, 0x0));
     /* clock gates */
     Wr(c->CmuPeric1, 0x804, Rd(c->CmuPeric1, 0x804) | (1u << 3));
     Wr(c->CmuCcore, 0x900, Rd(c->CmuCcore, 0x900) | (1u << 0));
@@ -282,11 +299,17 @@ static NTSTATUS HwInit(PDEV_CTX c)
     PinFunc(c->PinCcore, 0, 2); PinFunc(c->PinCcore, 1, 2);
     PinFunc(c->PinAlive + 0x20, 0, 0);
 
+    Diag(L"Stage", 2);
     I2cSetup(c->I2c15);
     I2cSetup(c->I2c7);
+    Diag(L"I2c15Conf", Rd(c->I2c15, HSI2C_CONF));
+    Diag(L"I2c7Conf", Rd(c->I2c7, HSI2C_CONF));
+    Diag(L"Stage", 3);
 
     st = PmicLdoOn(c, PMIC_L32CTRL, 46);
     if (NT_SUCCESS(st)) st = PmicLdoOn(c, PMIC_L33CTRL, 60);
+    Diag(L"PmicStatus", (ULONG)st);
+    Diag(L"Stage", 4);
     if (!NT_SUCCESS(st)) DBG("PMIC failed %x, trying touch anyway", st);
     SleepMs(150);
 
@@ -296,16 +319,23 @@ static NTSTATUS HwInit(PDEV_CTX c)
         SleepMs(30);
     }
     DBG("first event %02x %02x st %x", ev[0], ev[1], st);
+    Diag(L"TouchFirstEvent", (ULONG)ev[0] | (ULONG)ev[1] << 8 | (ULONG)ev[2] << 16 | (ULONG)ev[3] << 24);
+    Diag(L"TouchStatus", (ULONG)st);
+    Diag(L"Stage", 5);
     if (!NT_SUCCESS(st)) return st;
 
     I2cReadReg(c->I2c7, TS_ADDR, TS_BOOT_STATUS, &bs, 1);
     I2cReadReg(c->I2c7, TS_ADDR, TS_DEVICE_ID, id, 3);
     DBG("boot status %02x devid %02x%02x%02x", bs, id[0], id[1], id[2]);
+    Diag(L"TouchBootStatus", bs);
+    Diag(L"TouchDevId", (ULONG)id[0] << 16 | (ULONG)id[1] << 8 | id[2]);
 
     { UCHAR w[2] = { TS_TOUCH_FUNCTION, 0x01 }; I2cWrite(c->I2c7, TS_ADDR, w, 2); }
     SleepMs(20);
     { UCHAR w = TS_CLEAR_EVENTS; I2cWrite(c->I2c7, TS_ADDR, &w, 1); }
     { UCHAR w = TS_SENSE_ON; st = I2cWrite(c->I2c7, TS_ADDR, &w, 1); }
+    Diag(L"SenseOnStatus", (ULONG)st);
+    Diag(L"Stage", 6);
     return st;
 }
 
@@ -376,6 +406,8 @@ static VOID PollThread(PVOID ctx)
     BOOLEAN down = FALSE;
     UCHAR active_tid = 0xFF;
     BOOLEAN home = FALSE, vup = FALSE, vdn = FALSE;
+    ULONG ticks = 0, events = 0, irqlow = 0;
+    Diag(L"PollThread", 1);
 
     for (;;) {
         if (KeWaitForSingleObject(&c->StopEvent, Executive, KernelMode, FALSE, &period) == STATUS_SUCCESS)
@@ -393,11 +425,14 @@ static VOID PollThread(PVOID ctx)
                 Enqueue(c, &cc, sizeof(cc), FALSE); vup = u; vdn = v;
             }
         }
+        if (++ticks % 125 == 0) { Diag(L"PollTicks", ticks); Diag(L"TouchEvents", events); Diag(L"IrqLowSeen", irqlow); }
         if (!c->HwOk) continue;
+        if (!(Rd(c->PinAlive + 0x20, 0x4) & 1)) irqlow++;
         /* IRQ line low = events pending */
         for (int n = 0; n < 16 && !(Rd(c->PinAlive + 0x20, 0x4) & 1); n++) {
             if (!NT_SUCCESS(I2cReadReg(c->I2c7, TS_ADDR, TS_READ_ONE_EVENT, ev, 8)) || !ev[0])
                 break;
+            events++;
             if ((ev[0] >> 6) != 1 || !(ev[1] & 0x0F)) continue;   /* not a coordinate */
             UCHAR tid = (ev[1] & 0x0F) - 1, state = ev[0] & 7;
             USHORT x = (USHORT)((ev[2] << 4) | (ev[4] >> 4));
@@ -424,8 +459,10 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
     WDF_DRIVER_CONFIG cfg;
     WDF_DRIVER_CONFIG_INIT(&cfg, EvtDeviceAdd);
-    DBG("DriverEntry %s", "v1");
-    return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &cfg, WDF_NO_HANDLE);
+    DBG("DriverEntry %s", "v2");
+    NTSTATUS st = WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &cfg, WDF_NO_HANDLE);
+    if (NT_SUCCESS(st)) { Diag(L"DriverEntry", 2); Diag(L"Stage", 0); }
+    return st;
 }
 
 NTSTATUS EvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
@@ -438,6 +475,7 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
     NTSTATUS st;
     UNREFERENCED_PARAMETER(Driver);
 
+    Diag(L"DeviceAdd", 1);
     WdfFdoInitSetFilter(Init);
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
     pnp.EvtDevicePrepareHardware = EvtPrepareHardware;
@@ -468,8 +506,10 @@ NTSTATUS EvtPrepareHardware(WDFDEVICE dev, WDFCMRESLIST raw, WDFCMRESLIST xlat)
     PDEV_CTX c = GetCtx(dev);
     NTSTATUS st;
     UNREFERENCED_PARAMETER(raw); UNREFERENCED_PARAMETER(xlat);
+    Diag(L"PrepareHardware", 1);
     st = HwInit(c);
     DBG("HwInit -> %x", st);
+    Diag(L"HwInitStatus", (ULONG)st);
     c->HwOk = NT_SUCCESS(st);
     return STATUS_SUCCESS;     /* keep the HID device even if the panel did not answer */
 }
