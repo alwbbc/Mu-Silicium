@@ -29,7 +29,7 @@ gMemoryDescriptor[] = {
   {"Modem",              0xF0000000, 0x08800000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},
   {"Free Memory 6",      0xF8800000, 0x03800000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"Secure Camera",      0xFC000000, 0x01C00000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},
-  {"SMP Diag",           0xFDC00000, 0x00001000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK},       // ErrataPatchesLib SmpPatch log, printed by BootSel
+  {"SMP Diag",           0xFDC00000, 0x00001000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, WRITE_BACK},       // ErrataPatchesLib SmpPatch log, printed by BootSel
   {"Free Memory 7",      0xFDC01000, 0x007FF000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"RAM Partition",      0x880000000,0x80000000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},       // 2GB
 

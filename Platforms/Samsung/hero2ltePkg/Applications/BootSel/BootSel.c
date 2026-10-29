@@ -38,7 +38,7 @@ SmpDiag (VOID)
   UINTN            Cpu;
 
   InvalidateDataCacheRange ((VOID *)D, EFI_PAGE_SIZE);
-  Print (L"  SMP: patch %lx slot %lx", D[0], D[1]);
+  Print (L"  SMP: boot#%ld patch %lx slot %lx", D[0x40], D[0], D[1]);
   for (Cpu = 1; Cpu < 4; Cpu++)
     Print (L" | %x ctx %lx", (UINT32)D[8 + Cpu * 4], D[9 + Cpu * 4]);
   Print (L"\n");
@@ -49,6 +49,7 @@ SmpDiag (VOID)
     Print (L" tr %lx\n", S[16]);
   }
   ZeroMem ((VOID *)D, 0x100);
+  D[0x40] = (D[0x40] < 1000) ? D[0x40] + 1 : 1;    /* boot counter: shows the page survives a reset */
   WriteBackInvalidateDataCacheRange ((VOID *)D, EFI_PAGE_SIZE);
 }
 
