@@ -87,6 +87,34 @@ static void dbg(u32 off, u64 v)
 
 static u32 enc_b(u64 from, u64 to, u32 op) { return op | (u32)(((to - from) >> 2) & 0x3FFFFFF); }
 
+/*
+ * Timers: Samsung's EL3 enters EL1 directly and never initialises EL2, so
+ * CNTVOFF_EL2 is left at its (random) reset value, different on every core.
+ * Windows reads the virtual counter (CNTVCT) for its clock, which then jumps
+ * by years between cores. Make ntoskrnl use the physical counter and the
+ * physical EL1 timer instead (GTDT points the virtual timer GSIV at the
+ * physical timer PPI to match):
+ *   mrs xN, cntvct_el0           -> mrs xN, cntpct_el0
+ *   mrs/msr cntv_{tval,ctl,cval} -> cntp_{tval,ctl,cval}
+ * Only executable sections are scanned.
+ */
+static void TimerPatch(char *base, struct sect *s, u32 nsec)
+{
+  u32 count = 0;
+  for (u32 i = 0; i < nsec; i++) {
+    if (!(s[i].ch & 0x20000000u)) continue;                     /* IMAGE_SCN_MEM_EXECUTE */
+    u32 *w = (u32 *)(base + s[i].va), n = s[i].vsize / 4;
+    for (u32 k = 0; k < n; k++) {
+      u32 x = w[k], y = x;
+      if ((x & 0xFFFFFFE0u) == 0xD53BE040u) y = x - 0x20;       /* cntvct -> cntpct */
+      else if ((x & 0xFFDFFFE0u) == 0xD51BE300u || (x & 0xFFDFFFE0u) == 0xD51BE320u ||
+               (x & 0xFFDFFFE0u) == 0xD51BE340u) y = x - 0x100; /* cntv_* -> cntp_* */
+      if (y != x) { w[k] = y; sync_icache(&w[k]); count++; }
+    }
+  }
+  dbg(0x10, 0x7100000000ull | count);
+}
+
 void SmpPatch(void *loader_block)
 {
   struct list *head = (struct list *)((char *)loader_block + 0x10);
@@ -108,6 +136,7 @@ void SmpPatch(void *loader_block)
   dbg(0, 0x5A02);
   if (!text || !data) return;
   dbg(0, 0x5A03);
+  TimerPatch(base, s, nsec);
 
   /* CPU_ON call site: ldr x9, [x20, #0x40] ; ldr x1, [sp, #0x10] ; bl smc_stub */
   u32 *w = (u32 *)base, n = size / 4, site = 0;
@@ -143,23 +172,17 @@ void SmpPatch(void *loader_block)
   if (!slotpa || va_to_pa(SMP_DIAG_PA) != SMP_DIAG_PA) return;
   dbg(0, 0x5A09);
   dbg(8, slotpa);
-  {   /* boot CPU state, same layout the trampoline uses for the others (diag + 0x100) */
-    u64 sctlr, frq, vct, pct;
-    __asm__ volatile ("mrs %0, sctlr_el1\n mrs %1, cntfrq_el0\n mrs %2, cntvct_el0\n mrs %3, cntpct_el0"
-                      : "=r"(sctlr), "=r"(frq), "=r"(vct), "=r"(pct));
-    dbg(0x100, sctlr); dbg(0x108, frq); dbg(0x110, vct - pct);
-  }
 
   /* trampoline in the (low, < 4 GB) diag page: Samsung's EL3 may only take a
    * 32-bit entry point, and ntoskrnl can be loaded above 4 GB.
    * x9 = tramp, x10 = slot PA, x11 = aff0, x12 = diag + aff0*32: mark, x0 = context, br entry */
-  static const u32 tr[30] = {
+  static const u32 tr[31] = {
     0x10000009u, 0xD120012Cu, 0xF940412Au, 0xD53800ABu, 0x92401D6Bu, 0x8B0B114Du, 0xA94001A1u, 0x8B0B198Eu,
     0x8B0B158Cu, 0x52AF400Fu, 0x2A0B01EFu, 0xB900418Fu, 0xA9048580u, 0xD5033F9Fu, 0xD538100Fu, 0xD53BE010u,
-    0xA91041CFu, 0xD5033F9Fu, 0xD53BE04Fu, 0xD53BE030u, 0xCB1001EFu, 0xD2A22010u, 0xF2830010u, 0xB9400210u,
-    0xA91141CFu, 0x52AF600Fu, 0x2A0B01EFu, 0xB90121CFu, 0xD5033F9Fu, 0xD61F0020u };
+    0xA91041CFu, 0xD5033F9Fu, 0xD53BE04Fu, 0xD53BE030u, 0xD53BE231u, 0xCB1001EFu, 0xD2A22010u, 0xF2830010u,
+    0xB9400210u, 0xA91141CFu, 0x52AF600Fu, 0x2A0B01EFu, 0xB90121CFu, 0xD5033F9Fu, 0xD61F0020u };
   u64 tramp = SMP_DIAG_PA + 0x800;
-  for (u32 k = 0; k < 30; k++) ((volatile u32 *)tramp)[k] = tr[k];
+  for (u32 k = 0; k < 31; k++) ((volatile u32 *)tramp)[k] = tr[k];
   *(volatile u64 *)(tramp + 0x80) = slotpa;
   for (u64 p = tramp; p < tramp + 0xC0; p += 64) clean_poc((void *)p);
   *(u64 *)(slot + 0x80) = tramp;                                 /* entry point the hook passes */
@@ -179,3 +202,4 @@ void SmpPatch(void *loader_block)
   sync_icache(&w[site]);
   dbg(0, 0x5A0F);
 }
+

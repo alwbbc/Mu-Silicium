@@ -38,7 +38,7 @@ SmpDiag (VOID)
   UINTN            Cpu;
 
   InvalidateDataCacheRange ((VOID *)D, EFI_PAGE_SIZE);
-  Print (L"  SMP: boot#%ld patch %lx slot %lx", D[0x40], D[0], D[1]);
+  Print (L"  SMP: boot#%ld patch %lx timer %lx slot %lx", D[0x40], D[0], D[2], D[1]);
   for (Cpu = 1; Cpu < 4; Cpu++)
     Print (L" | %x ctx %lx", (UINT32)D[8 + Cpu * 4], D[9 + Cpu * 4]);
   Print (L"\n");
@@ -218,7 +218,7 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Print (L"  Volume Down : Linux   %s\n", Lnx ? L"" : L"(not found)");
   Print (L"  Home        : WinPE   %s\n", Win ? L"" : L"(not found)");
   Print (L"  Power       : UEFI Shell\n\n");
-  CpuProbe ();   /* SMP probe (GIC CPU interface of each A53 core) */
+  if (0) CpuProbe ();   /* SMP probe (GIC CPU interface of each A53 core), kept for debugging */
   SmpDiag ();
   Print (L"\n");
 
