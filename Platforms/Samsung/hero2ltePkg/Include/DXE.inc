@@ -45,3 +45,4 @@
   INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
 
   INF ShellPkg/Application/Shell/Shell.inf
+  INF hero2ltePkg/Applications/BootSel/BootSel.inf

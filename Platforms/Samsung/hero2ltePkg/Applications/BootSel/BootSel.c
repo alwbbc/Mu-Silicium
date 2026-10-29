@@ -16,6 +16,45 @@
 #include <Library/DevicePathLib.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <Protocol/LoadedImage.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
+
+/* set before handing control to the UEFI Shell, so the BOOTSEL.EFI that the
+ * Shell's startup.nsh runs does not bring the menu straight back */
+STATIC EFI_GUID mHero2VarGuid = { 0x6a1f2b3c, 0x8890, 0x4e2a, { 0x9b, 0x55, 0x48, 0x45, 0x52, 0x4f, 0x32, 0x4c } };
+STATIC EFI_GUID mShellFileGuid = { 0x7C04A583, 0x9E3E, 0x4F1C, { 0xAD, 0x65, 0xE0, 0x52, 0x68, 0xD0, 0xB4, 0xD1 } };
+
+STATIC VOID
+ConnectAll (VOID)
+{
+  EFI_HANDLE *Handles;
+  UINTN       Count, i, Pass;
+
+  for (Pass = 0; Pass < 2; Pass++) {
+    if (EFI_ERROR (gBS->LocateHandleBuffer (AllHandles, NULL, NULL, &Count, &Handles))) return;
+    for (i = 0; i < Count; i++) gBS->ConnectController (Handles[i], NULL, NULL, TRUE);
+    FreePool (Handles);
+  }
+}
+
+STATIC VOID
+LaunchShell (EFI_HANDLE ImageHandle)
+{
+  EFI_LOADED_IMAGE_PROTOCOL           *Self;
+  MEDIA_FW_VOL_FILEPATH_DEVICE_PATH    Node;
+  EFI_DEVICE_PATH_PROTOCOL            *Dp;
+  EFI_HANDLE                           Image;
+  UINT8                                One = 1;
+
+  if (EFI_ERROR (gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Self))) return;
+  EfiInitializeFwVolDevicepathNode (&Node, &mShellFileGuid);
+  Dp = AppendDevicePathNode (DevicePathFromHandle (Self->DeviceHandle), (EFI_DEVICE_PATH_PROTOCOL *)&Node);
+  if (Dp == NULL) return;
+  gRT->SetVariable (L"Hero2InShell", &mHero2VarGuid, EFI_VARIABLE_BOOTSERVICE_ACCESS, sizeof (One), &One);
+  if (!EFI_ERROR (gBS->LoadImage (FALSE, ImageHandle, Dp, NULL, 0, &Image)))
+    gBS->StartImage (Image, NULL, NULL);
+  else
+    Print (L"  UEFI Shell is not in this firmware volume (BOOTSEL.EFI started from disk?)\n");
+}
 
 #define WIN_LOADER   L"\\EFI\\Boot\\bootaa64.efi"
 #define OS_LOADER    L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
@@ -78,13 +117,23 @@ EFI_STATUS
 EFIAPI
 BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
-  EFI_HANDLE     Os  = FindVolume (OS_MARKER, OS_LOADER);
-  EFI_HANDLE     Win = FindVolume (WIN_MARKER, WIN_LOADER);
-  EFI_HANDLE     Lnx = FindVolume (LNX_MARKER, LNX_KERNEL);
+  EFI_HANDLE     Os, Win, Lnx;
   EFI_EVENT      Timer, Events[2];
   EFI_INPUT_KEY  Key;
   UINTN          Index, Left = 5;
-  INTN           Choice = Os ? 3 : (Win ? 1 : (Lnx ? 2 : 0));
+  INTN           Choice;
+  UINT8          InShell = 0;
+  UINTN          VarSize = sizeof (InShell);
+
+  if (!EFI_ERROR (gRT->GetVariable (L"Hero2InShell", &mHero2VarGuid, NULL, &VarSize, &InShell)) && InShell) {
+    return EFI_SUCCESS;                      /* we are inside the Shell the menu started */
+  }
+
+  ConnectAll ();                             /* booted straight from BootOrder: nothing is connected yet */
+  Os  = FindVolume (OS_MARKER, OS_LOADER);
+  Win = FindVolume (WIN_MARKER, WIN_LOADER);
+  Lnx = FindVolume (LNX_MARKER, LNX_KERNEL);
+  Choice = Os ? 3 : (Win ? 1 : (Lnx ? 2 : 0));
 
   gST->ConOut->ClearScreen (gST->ConOut);
   Print (L"\n  Galaxy S7 Edge (hero2lte) - boot menu\n\n");
@@ -122,5 +171,7 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Print (L"  Starting Linux...\n");
     Launch (ImageHandle, Lnx, LNX_KERNEL, LNX_CMDLINE);
   }
-  return EFI_SUCCESS;  /* back to the shell */
+  /* Power key, or the chosen OS returned: open the UEFI Shell */
+  LaunchShell (ImageHandle);
+  return EFI_SUCCESS;
 }
