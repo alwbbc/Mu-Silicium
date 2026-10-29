@@ -1,7 +1,7 @@
 //
 // Galaxy S7 Edge (hero2lte) / Exynos 8890 DSDT: Cortex-A53 cluster only.
 //
-DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 6)
+DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 7)
 {
     Scope (\_SB)
     {
@@ -45,7 +45,7 @@ DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 6)
         {
             Name (_HID, "HERO0155")
             Name (_UID, 0)
-            Name (_CCA, 0)
+            Name (_CCA, 1)   // UEFI enables UFS IO coherency (vendor DT: dma-coherent)
 
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
 

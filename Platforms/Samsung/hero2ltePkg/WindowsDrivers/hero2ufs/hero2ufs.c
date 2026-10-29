@@ -94,6 +94,8 @@ typedef struct {
     ULONG Commands, Errors;
     ULONG LastOcs, LastScsi, LastIs;
     ULONG LastOp, LastSrb, LastLen, LastSegs, LastPaLo, LastPaHi, LastFlags;
+    ULONG ErrLog[8], ErrLba[8], ErrN;
+    ULONG BlockSize, LastLba, GptFixups;
     BOOLEAN Ready;
 } HW_EXT, *PHW_EXT;
 
@@ -319,6 +321,11 @@ static VOID StatsThread(PVOID ctx)
         Diag(L"LastOcs", e->LastOcs);
         Diag(L"LastScsi", e->LastScsi);
         Diag(L"LastIs", e->LastIs);
+        Diag(L"GptFixups", e->GptFixups);
+        { ULONG i; WCHAR n1[] = L"Err0", n2[] = L"ErrInfo0";
+          for (i = 0; i < 8 && i < e->ErrN; i++) {
+              n1[3] = (WCHAR)(L'0' + i); n2[7] = (WCHAR)(L'0' + i);
+              Diag(n1, e->ErrLog[i]); Diag(n2, e->ErrLba[i]); } }
     }
 }
 
@@ -367,7 +374,8 @@ BOOLEAN HwPassiveInit(PVOID DevExt)
         rc = TestIn(e, rcap, 10, 8, &st);
         Diag(L"T2_CapSrb", rc); Diag(L"T2_CapOcs", e->LastOcs);
         Diag(L"T2_LastLba", Be32(d)); Diag(L"T2_BlockSize", Be32(d + 4));
-        if (rc == SRB_STATUS_SUCCESS && Be32(d + 4) && Be32(d + 4) <= 4096) bs = Be32(d + 4); }
+        if (rc == SRB_STATUS_SUCCESS && Be32(d + 4) && Be32(d + 4) <= 4096) {
+            bs = Be32(d + 4); e->BlockSize = bs; e->LastLba = Be32(d); } }
     {   UCHAR rd[10] = { 0x28, 0, 0, 0, 0, 1, 0, 0, 1, 0 };   /* READ(10) LBA 1, 1 block */
         rc = TestIn(e, rd, 10, bs, &st);
         Diag(L"T3_ReadSrb", rc); Diag(L"T3_ReadOcs", e->LastOcs); Diag(L"T3_ReadScsi", st);
@@ -406,6 +414,52 @@ BOOLEAN HwPassiveInit(PVOID DevExt)
     return TRUE;
 }
 
+/*
+ * Samsung writes GPT headers with HeaderSize = 512. UEFI and Linux accept it,
+ * Windows only accepts 92. Patch the copy that goes up the stack (primary at
+ * LBA 1 and backup at the last LBA): HeaderSize = 92, header CRC recomputed.
+ * The disk itself is not modified.
+ */
+static void GptFixup(PHW_EXT e, PSCSI_REQUEST_BLOCK Srb)
+{
+    ULONGLONG lba, blk;
+    ULONG cnt, bs = e->BlockSize ? e->BlockSize : 4096;
+    PUCHAR va = NULL;
+    PUCHAR c = Srb->Cdb;
+
+    if (c[0] == 0x28) { lba = Be32(c + 2); cnt = ((ULONG)c[7] << 8) | c[8]; }
+    else if (c[0] == 0x88) { lba = ((ULONGLONG)Be32(c + 2) << 32) | Be32(c + 6); cnt = Be32(c + 10); }
+    else return;
+
+    for (blk = lba; blk < lba + cnt; blk++) {
+        PUCHAR h;
+        if (blk != 1 && !(e->LastLba && blk == e->LastLba)) continue;
+        if ((blk - lba + 1) * bs > Srb->DataTransferLength) break;
+        if (!va && StorPortGetSystemAddress(e, Srb, (PVOID *)&va) != STOR_STATUS_SUCCESS) return;
+        if (!va) return;
+        h = va + (blk - lba) * bs;
+        if (RtlCompareMemory(h, "EFI PART", 8) != 8) continue;
+        if (Le32(h + 12) == 92) continue;
+        h[12] = 92; h[13] = h[14] = h[15] = 0;
+        h[16] = h[17] = h[18] = h[19] = 0;
+        {
+            ULONG crc = Crc32(h, 92);
+            h[16] = (UCHAR)crc; h[17] = (UCHAR)(crc >> 8); h[18] = (UCHAR)(crc >> 16); h[19] = (UCHAR)(crc >> 24);
+        }
+        e->GptFixups++;
+    }
+}
+
+static void LogError(PHW_EXT e, PSCSI_REQUEST_BLOCK Srb, UCHAR status)
+{
+    ULONG i = e->ErrN++ % 8;
+    PUCHAR c = Srb->Cdb;
+    PUCHAR sn = (PUCHAR)Srb->SenseInfoBuffer;
+    ULONG key = (sn && (status & SRB_STATUS_AUTOSENSE_VALID)) ? ((ULONG)(sn[2] & 0xF) << 16 | (ULONG)sn[12] << 8 | sn[13]) : 0;
+    e->ErrLog[i] = (ULONG)c[0] | (ULONG)(status & 0x3F) << 8 | (ULONG)e->LastOcs << 14 | (ULONG)Srb->ScsiStatus << 18 | (ULONG)c[2] << 26;
+    e->ErrLba[i] = key ? key : (c[0] == 0x28 ? Be32(c + 2) : ((ULONG)c[1] << 8 | c[2]));
+}
+
 BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
 {
     PHW_EXT e = (PHW_EXT)DevExt;
@@ -437,6 +491,15 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
                              segs, nsegs, (PUCHAR)Srb->SenseInfoBuffer, Srb->SenseInfoBufferLength, &st);
             Srb->ScsiStatus = st;
             e->LastSrb = status;
+            if (status == SRB_STATUS_SUCCESS && !toDev) {
+                if (Srb->Cdb[0] == 0x25 && Srb->DataTransferLength >= 8 && Srb->DataBuffer) {
+                    /* READ CAPACITY(10) buffer is mapped (non read/write) */
+                    PUCHAR d = (PUCHAR)Srb->DataBuffer;
+                    e->LastLba = Be32(d); e->BlockSize = Be32(d + 4);
+                }
+                GptFixup(e, Srb);
+            }
+            if (status != SRB_STATUS_SUCCESS) LogError(e, Srb, status);
             if ((status & SRB_STATUS_AUTOSENSE_VALID) == 0 && status != SRB_STATUS_SUCCESS)
                 Srb->DataTransferLength = 0;
         }
