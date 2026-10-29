@@ -10,11 +10,12 @@ clang -ivfsoverlay ${WDK_OVERLAY:-/home/claude/wdk/ci-overlay.yaml} --target=aar
   -DKMDF_VERSION_MAJOR=1 -DKMDF_VERSION_MINOR=15 -DPOOL_NX_OPTIN=0 \
   -ffreestanding -fno-stack-protector -fno-builtin -O2 -Wall -Wno-unknown-pragmas -Wno-microsoft-anon-tag \
   -Wno-ignored-pragma-intrinsic -Wno-pragma-pack -Wno-nonportable-include-path -Wno-microsoft-enum-forward-reference -Wno-switch -Wno-missing-braces -c hero2touch.c -o hero2touch.obj
+clang --target=aarch64-pc-windows-msvc -ffreestanding -fno-stack-protector -O2 -c crtstub.c -o crtstub.obj
 lld-link /nologo /driver /subsystem:native,10.00 /entry:FxDriverEntry /machine:arm64 /nodefaultlib \
-  /merge:.rdata=.text /release /out:hero2touch.sys hero2touch.obj \
-  $W/Lib/wdf/kmdf/ARM64/1.15/wdfdriverentry.lib $W/Lib/wdf/kmdf/ARM64/1.15/wdfldr.lib $L/ntoskrnl.lib $L/hal.lib $L/bufferoverflowfastfailk.lib
+  /merge:.kmdfclassbind=.rdata /merge:.kmdftypeinit=.rdata /release /base:0x1C0000000 /tsaware:no /stack:0x40000 /map:hero2touch.map /out:hero2touch.sys hero2touch.obj crtstub.obj \
+  ${WDFSTUB:-/home/claude/wdk/wdfstub/wdfdriverentry_fixed.lib} $W/Lib/wdf/kmdf/ARM64/1.15/wdfldr.lib $L/ntoskrnl.lib $L/hal.lib
 # test-sign (Windows must boot with testsigning on)
 SIGN=${OSSLSIGNCODE:-/home/claude/wdk/osslsigncode/build/osslsigncode}
 CERT=${CERTDIR:-/home/claude/wdk/cert}
 $SIGN sign -certs $CERT/test.crt -key $CERT/test.key -h sha256 -ph -in hero2touch.sys -out hero2touch.signed.sys >/dev/null && mv hero2touch.signed.sys hero2touch.sys
-rm -f hero2touch.obj
+rm -f hero2touch.obj crtstub.obj

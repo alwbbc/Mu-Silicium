@@ -129,7 +129,13 @@ typedef struct _DEV_CTX {
     ULONG QHead, QCount;
     KSPIN_LOCK Lock;
 } DEV_CTX, *PDEV_CTX;
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEV_CTX, GetCtx)
+/* Hand-rolled WDF_DECLARE_CONTEXT_TYPE: the macro puts a const object into
+ * ".data" via __declspec(allocate), which clang turns into a second,
+ * read-only .data section. */
+static WDF_OBJECT_CONTEXT_TYPE_INFO DevCtxTypeInfo = {
+    sizeof(WDF_OBJECT_CONTEXT_TYPE_INFO), "DEV_CTX", sizeof(DEV_CTX), &DevCtxTypeInfo, NULL
+};
+#define GetCtx(h) ((PDEV_CTX)WdfObjectGetTypedContextWorker((WDFOBJECT)(h), DevCtxTypeInfo.UniqueType))
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD EvtDeviceAdd;
@@ -484,7 +490,8 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
     pnp.EvtDeviceD0Exit = EvtD0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(Init, &pnp);
 
-    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr, DEV_CTX);
+    WDF_OBJECT_ATTRIBUTES_INIT(&attr);
+    attr.ContextTypeInfo = &DevCtxTypeInfo;
     st = WdfDeviceCreate(&Init, &attr, &dev);
     if (!NT_SUCCESS(st)) return st;
     c = GetCtx(dev);
