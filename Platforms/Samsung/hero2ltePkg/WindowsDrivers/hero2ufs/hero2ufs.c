@@ -81,7 +81,9 @@ typedef struct {
 #define OFF_UTRL   0x0000
 #define OFF_UTMRL  0x0400
 #define OFF_UCD    0x1000
-#define UNCACHED_SIZE (OFF_UCD + sizeof(UCD))
+#define OFF_DATA   0x3000
+#define DATA_SIZE  0x8000
+#define UNCACHED_SIZE (OFF_DATA + DATA_SIZE)
 
 typedef struct {
     PUCHAR Hci;               /* 0x155A0000 */
@@ -91,6 +93,7 @@ typedef struct {
     UCD   *Ucd;
     ULONG Commands, Errors;
     ULONG LastOcs, LastScsi, LastIs;
+    ULONG LastOp, LastSrb, LastLen, LastSegs, LastPaLo, LastPaHi, LastFlags;
     BOOLEAN Ready;
 } HW_EXT, *PHW_EXT;
 
@@ -298,11 +301,53 @@ BOOLEAN HwInitialize(PVOID DevExt)
     return StorPortEnablePassiveInitialization(e, HwPassiveInit);
 }
 
+static VOID StatsThread(PVOID ctx)
+{
+    PHW_EXT e = (PHW_EXT)ctx;
+    LARGE_INTEGER t; t.QuadPart = -20000000;   /* 2 s */
+    for (;;) {
+        KeDelayExecutionThread(KernelMode, FALSE, &t);
+        Diag(L"Commands", e->Commands);
+        Diag(L"Errors", e->Errors);
+        Diag(L"LastOp", e->LastOp);
+        Diag(L"LastSrb", e->LastSrb);
+        Diag(L"LastLen", e->LastLen);
+        Diag(L"LastSegs", e->LastSegs);
+        Diag(L"LastPaHi", e->LastPaHi);
+        Diag(L"LastPaLo", e->LastPaLo);
+        Diag(L"LastFlags", e->LastFlags);
+        Diag(L"LastOcs", e->LastOcs);
+        Diag(L"LastScsi", e->LastScsi);
+        Diag(L"LastIs", e->LastIs);
+    }
+}
+
+/* data-in test through our own uncached buffer */
+static UCHAR TestIn(PHW_EXT e, const UCHAR *cdb, ULONG cdbLen, ULONG len, PUCHAR st)
+{
+    SEG seg; UCHAR sense[18];
+    seg.Pa.QuadPart = e->BasePa.QuadPart + OFF_DATA;
+    seg.Len = len;
+    RtlZeroMemory(e->Base + OFF_DATA, DATA_SIZE);
+    return UfsExec(e, 0, cdb, cdbLen, len, FALSE, &seg, 1, sense, sizeof(sense), st);
+}
+
+static ULONG Crc32(const UCHAR *p, ULONG n)
+{
+    ULONG c = 0xFFFFFFFF, k;
+    while (n--) { c ^= *p++; for (k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320 & (0 - (c & 1))); }
+    return ~c;
+}
+static ULONG Le32(PUCHAR p) { return (ULONG)p[0] | (ULONG)p[1] << 8 | (ULONG)p[2] << 16 | (ULONG)p[3] << 24; }
+
+static ULONG Be32(PUCHAR p) { return (ULONG)p[0] << 24 | (ULONG)p[1] << 16 | (ULONG)p[2] << 8 | p[3]; }
+
 BOOLEAN HwPassiveInit(PVOID DevExt)
 {
     PHW_EXT e = (PHW_EXT)DevExt;
     UCHAR tur[6] = { 0 }, sense[18], st = 0, rc;
-    ULONG i;
+    ULONG i, bs = 4096;
+    PUCHAR d = e->Base + OFF_DATA;
 
     Diag(L"PassiveInit", 1);
     Diag(L"HCS2", Rd(e, REG_HCS));
@@ -313,8 +358,51 @@ BOOLEAN HwPassiveInit(PVOID DevExt)
     }
     Diag(L"TurSrbStatus", rc);
     Diag(L"TurScsiStatus", st);
-    Diag(L"LastOcs", e->LastOcs);
-    Diag(L"LastIs", e->LastIs);
+
+    {   UCHAR inq[6] = { 0x12, 0, 0, 0, 36, 0 };
+        rc = TestIn(e, inq, 6, 36, &st);
+        Diag(L"T1_InqSrb", rc); Diag(L"T1_InqOcs", e->LastOcs);
+        Diag(L"T1_InqVendor", Be32(d + 8)); Diag(L"T1_InqByte0", Be32(d)); }
+    {   UCHAR rcap[10] = { 0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        rc = TestIn(e, rcap, 10, 8, &st);
+        Diag(L"T2_CapSrb", rc); Diag(L"T2_CapOcs", e->LastOcs);
+        Diag(L"T2_LastLba", Be32(d)); Diag(L"T2_BlockSize", Be32(d + 4));
+        if (rc == SRB_STATUS_SUCCESS && Be32(d + 4) && Be32(d + 4) <= 4096) bs = Be32(d + 4); }
+    {   UCHAR rd[10] = { 0x28, 0, 0, 0, 0, 1, 0, 0, 1, 0 };   /* READ(10) LBA 1, 1 block */
+        rc = TestIn(e, rd, 10, bs, &st);
+        Diag(L"T3_ReadSrb", rc); Diag(L"T3_ReadOcs", e->LastOcs); Diag(L"T3_ReadScsi", st);
+        Diag(L"T3_Lba1_0", Be32(d)); Diag(L"T3_Lba1_4", Be32(d + 4));
+        if (rc == SRB_STATUS_SUCCESS) {
+            /* GPT header checks the way Windows does them */
+            ULONG hsz = Le32(d + 12), hcrc = Le32(d + 16), calc;
+            ULONG entLba = Le32(d + 72), nEnt = Le32(d + 80), entSz = Le32(d + 84), ecrc = Le32(d + 88);
+            Diag(L"G_HeaderSize", hsz);
+            Diag(L"G_MyLba", Le32(d + 24));
+            Diag(L"G_AltLba", Le32(d + 32));
+            Diag(L"G_FirstUsable", Le32(d + 40));
+            Diag(L"G_LastUsable", Le32(d + 48));
+            Diag(L"G_EntriesLba", entLba);
+            Diag(L"G_NumEntries", nEnt);
+            Diag(L"G_EntrySize", entSz);
+            if (hsz >= 92 && hsz <= bs) {
+                d[16] = d[17] = d[18] = d[19] = 0;
+                calc = Crc32(d, hsz);
+                Diag(L"G_HdrCrcOk", calc == hcrc);
+            }
+            if (nEnt && entSz && nEnt * entSz <= DATA_SIZE) {
+                ULONG bytes = nEnt * entSz, blocks = (bytes + bs - 1) / bs;
+                UCHAR rd2[10] = { 0x28, 0, (UCHAR)(entLba >> 24), (UCHAR)(entLba >> 16), (UCHAR)(entLba >> 8), (UCHAR)entLba,
+                                  0, (UCHAR)(blocks >> 8), (UCHAR)blocks, 0 };
+                rc = TestIn(e, rd2, 10, blocks * bs, &st);
+                Diag(L"G_EntReadSrb", rc);
+                if (rc == SRB_STATUS_SUCCESS) Diag(L"G_EntCrcOk", Crc32(d, bytes) == ecrc);
+            }
+        } }
+
+    {   HANDLE h; OBJECT_ATTRIBUTES oa;
+        InitializeObjectAttributes(&oa, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+        if (NT_SUCCESS(PsCreateSystemThread(&h, THREAD_ALL_ACCESS, &oa, NULL, NULL, StatsThread, e)))
+            ZwClose(h); }
     return TRUE;
 }
 
@@ -342,9 +430,13 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
                 }
                 nsegs = i;
             }
+            e->LastOp = Srb->Cdb[0]; e->LastLen = Srb->DataTransferLength; e->LastSegs = nsegs;
+            e->LastFlags = Srb->SrbFlags;
+            if (nsegs) { e->LastPaLo = segs[0].Pa.LowPart; e->LastPaHi = (ULONG)segs[0].Pa.HighPart; }
             status = UfsExec(e, 0, Srb->Cdb, Srb->CdbLength, Srb->DataTransferLength, toDev,
                              segs, nsegs, (PUCHAR)Srb->SenseInfoBuffer, Srb->SenseInfoBufferLength, &st);
             Srb->ScsiStatus = st;
+            e->LastSrb = status;
             if ((status & SRB_STATUS_AUTOSENSE_VALID) == 0 && status != SRB_STATUS_SUCCESS)
                 Srb->DataTransferLength = 0;
         }
