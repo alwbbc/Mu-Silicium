@@ -75,7 +75,7 @@
   #
   # ACPI Tables
   #
-  #hero2lte/AcpiTables.inf
+  hero2ltePkg/AcpiTables/AcpiTables.inf
 
   #
   # Input
