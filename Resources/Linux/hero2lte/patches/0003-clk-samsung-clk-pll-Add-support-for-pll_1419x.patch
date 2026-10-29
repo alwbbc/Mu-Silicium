@@ -1,7 +1,7 @@
 From 2c02763c243f70cc8e17bbb5f750f24f8c166821 Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 15:21:14 +0300
-Subject: [PATCH 03/16] clk: samsung: clk-pll: Add support for pll_1419x
+Subject: [PATCH 03/18] clk: samsung: clk-pll: Add support for pll_1419x
 
 The PLL is similar to pll_35xx, with the following differences:
 - different locktime - 150 instead of 270, as with pll_142xx

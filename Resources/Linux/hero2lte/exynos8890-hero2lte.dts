@@ -444,8 +444,8 @@
 			};
 
 			s2mps16_ldo32: ldo32 {
-				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <1800000>;
+				regulator-min-microvolt = <1850000>;
+				regulator-max-microvolt = <1850000>;
 				regulator-name = "vdd_ldo32";
 			};
 

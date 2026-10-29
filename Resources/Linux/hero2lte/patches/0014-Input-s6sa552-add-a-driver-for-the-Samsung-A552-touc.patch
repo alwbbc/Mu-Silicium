@@ -1,7 +1,7 @@
 From b0a4fe6239c4be2cb7bd88908290fc982db7179a Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 16:44:57 +0300
-Subject: [PATCH 14/16] Input: s6sa552 - add a driver for the Samsung A552
+Subject: [PATCH 14/18] Input: s6sa552 - add a driver for the Samsung A552
  touchscreen controller
 
 The S6SA552 touchscreen is a capacitive multi-touch controller for

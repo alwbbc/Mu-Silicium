@@ -1,7 +1,7 @@
 From 0d42f1799fa5d2ab2f51e64893cffe3a8c987b61 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 29 Oct 2026 11:03:09 +0300
-Subject: [PATCH 16/16] arm64: dts: exynos: add exynos8890 SoC (Ivo v1) and
+Subject: [PATCH 16/18] arm64: dts: exynos: add exynos8890 SoC (Ivo v1) and
  hero2lte board
 
 ---

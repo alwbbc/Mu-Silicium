@@ -1,7 +1,7 @@
 From 1eb1f2b29832974ea88968f55af90d3c0c9f55a5 Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 15:42:27 +0300
-Subject: [PATCH 12/16] regulator: s2mps11: add support for S2MPS16 regulators
+Subject: [PATCH 12/18] regulator: s2mps11: add support for S2MPS16 regulators
 
 S2MPS16 is a PMIC, manufactured by Samsung, particularly used in
 exynos8890 based devices, featuring 38 LDOs, of which 11 are used for

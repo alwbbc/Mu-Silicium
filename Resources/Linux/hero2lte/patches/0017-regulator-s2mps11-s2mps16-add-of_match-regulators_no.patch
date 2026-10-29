@@ -1,0 +1,35 @@
+From 359dc6c40749c06f504be1e36c8eea10ecc7aad0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 11:32:06 +0300
+Subject: [PATCH 17/18] regulator: s2mps11: s2mps16: add
+ of_match/regulators_node for 7.x DT matching
+
+---
+ drivers/regulator/s2mps11.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/regulator/s2mps11.c b/drivers/regulator/s2mps11.c
+index d87341eb0..a51db98d8 100644
+--- a/drivers/regulator/s2mps11.c
++++ b/drivers/regulator/s2mps11.c
+@@ -1840,6 +1840,8 @@ static const struct regulator_ops s2mps16_buck_ops = {
+ #define regulator_desc_s2mps16_ldo(num, min, step) {		\
+ 	.name		= "ldo"#num,				\
+ 	.id		= S2MPS16_LDO##num,			\
++	.of_match	= of_match_ptr("ldo"#num),		\
++	.regulators_node = of_match_ptr("regulators"),		\
+ 	.ops		= &s2mps16_ldo_ops,			\
+ 	.type		= REGULATOR_VOLTAGE,			\
+ 	.owner		= THIS_MODULE,				\
+@@ -1856,6 +1858,8 @@ static const struct regulator_ops s2mps16_buck_ops = {
+ #define regulator_desc_s2mps16_buck(num, min, step, vsel, enable) {	\
+ 	.name		= "buck"#num,					\
+ 	.id		= S2MPS16_BUCK##num,				\
++	.of_match	= of_match_ptr("buck"#num),			\
++	.regulators_node = of_match_ptr("regulators"),			\
+ 	.ops		= &s2mps16_buck_ops,				\
+ 	.type		= REGULATOR_VOLTAGE,				\
+ 	.owner		= THIS_MODULE,					\
+-- 
+2.43.0
+

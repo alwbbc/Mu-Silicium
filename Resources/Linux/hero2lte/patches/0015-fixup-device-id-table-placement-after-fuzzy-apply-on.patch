@@ -1,7 +1,7 @@
 From b5b555c9d56fd7e2e79b8f965946dec0babda4bb Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 29 Oct 2026 11:03:09 +0300
-Subject: [PATCH 15/16] fixup: device id table placement after fuzzy apply on
+Subject: [PATCH 15/18] fixup: device id table placement after fuzzy apply on
  7.3
 
 ---
