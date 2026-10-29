@@ -191,8 +191,7 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Print (L"  Volume Down : Linux   %s\n", Lnx ? L"" : L"(not found)");
   Print (L"  Home        : WinPE   %s\n", Win ? L"" : L"(not found)");
   Print (L"  Power       : UEFI Shell\n\n");
-  CpuProbe ();
-  Print (L"\n");
+  if (gST->ConIn != NULL && 0) CpuProbe ();   /* SMP probe, kept for debugging */
 
   gBS->CreateEvent (EVT_TIMER, 0, NULL, NULL, &Timer);
   gBS->SetTimer (Timer, TimerPeriodic, 10000000);  /* 1 s */

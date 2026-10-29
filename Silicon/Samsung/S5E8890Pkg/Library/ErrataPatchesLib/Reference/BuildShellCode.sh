@@ -11,6 +11,8 @@ _start:
   stp x0, x1, [sp, #-32]!
   str x30, [sp, #16]
   bl  PsciResetPatch
+  ldr x0, [sp]
+  bl  SmpPatch
   ldr x30, [sp, #16]
   ldp x0, x1, [sp], #32
   b   end_of_prologue
