@@ -74,15 +74,12 @@ if exist W:\Windows\Panther\unattend.xml move /y W:\Windows\Panther\unattend.xml
  echo ImageState=IMAGE_STATE_COMPLETE) > W:\Windows\Setup\State\State.ini
 echo [+] OOBE atlanacak: ilk acilista S7 hesabi olusturulacak
 :nooobe
-if exist W:\hero2\skipoobe.log type W:\hero2\skipoobe.log
 echo [+] dokunmatik:
-reg query HKLM\OFFSYS\ControlSet001\Services\hero2touch\Parameters 2>nul | find "Feat"
+reg query HKLM\OFFSYS\ControlSet001\Services\hero2touch\Parameters 2>nul | find "REG_"
 reg unload HKLM\OFFSYS >nul
-echo [3/3] son cokmeler (Kernel-Power 41 / BugCheck 1001):
-wevtutil qe W:\Windows\System32\winevt\Logs\System.evtx /lf:true /q:"*[System[(EventID=41 or EventID=1001)]]" /c:1 /rd:true /f:xml
 echo.
-echo FOTOGRAF CEK. 30 saniye sonra telefon yeniden baslayacak.
-ping -n 30 127.0.0.1 >nul
+echo FOTOGRAF CEK. Ekrana dokunup imleci dene. 60 saniye sonra telefon yeniden baslayacak.
+ping -n 60 127.0.0.1 >nul
 wpeutil reboot
 goto end
 

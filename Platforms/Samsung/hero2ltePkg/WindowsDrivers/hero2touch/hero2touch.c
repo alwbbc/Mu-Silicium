@@ -185,7 +185,7 @@ typedef struct _DEV_CTX {
     PKTHREAD Thread;
     KEVENT StopEvent;
     BOOLEAN HwOk;
-    volatile LONG TouchOk;     /* touch collection queried us -> send touch, not mouse */
+    volatile LONG TouchOk, FeatCalls, FeatLastId, FeatLastLen, SetFeatCalls, TouchReps, MouseReps, ReadsDone, OtherIoctl, LastIoctl;     /* touch collection queried us -> send touch, not mouse */
     UCHAR Q[16][QSZ];           /* pending raw reports */
     UCHAR QLen[16];
     ULONG QHead, QCount;
@@ -430,6 +430,7 @@ static void TryComplete(PDEV_CTX c)
             WDFMEMORY mem; NTSTATUS st = WdfRequestRetrieveOutputMemory(req, &mem);
             if (NT_SUCCESS(st)) st = WdfMemoryCopyFromBuffer(mem, 0, buf, len);
             WdfRequestCompleteWithInformation(req, st, NT_SUCCESS(st) ? len : 0);
+            InterlockedIncrement(&c->ReadsDone);
         }
     }
 }
@@ -468,6 +469,7 @@ static void PublishTouch(PDEV_CTX c, SLOT *sl)
         for (int i = 0; i < MAX_CONTACTS; i++)
             if (sl[i].Used && sl[i].Down) { m.Buttons = 1; m.X = sl[i].X; m.Y = sl[i].Y; break; }
         for (int i = 0; i < MAX_CONTACTS; i++) if (sl[i].Used && !sl[i].Down) sl[i].Used = FALSE;
+        InterlockedIncrement(&c->MouseReps);
         Enqueue(c, &m, sizeof(m), (BOOLEAN)(m.Buttons && last.Buttons));
         last = m;
         return;
@@ -479,6 +481,7 @@ static void PublishTouch(PDEV_CTX c, SLOT *sl)
         k->Tip = sl[i].Down ? 1 : 0; k->Id = sl[i].Tid; k->X = sl[i].X; k->Y = sl[i].Y;
         if (!sl[i].Down) sl[i].Used = FALSE;
     }
+    InterlockedIncrement(&c->TouchReps);
     Enqueue(c, &r, sizeof(r), FALSE);
 }
 
@@ -512,7 +515,10 @@ static VOID PollThread(PVOID ctx)
                 Enqueue(c, &cc, sizeof(cc), FALSE); vup = u; vdn = v;
             }
         }
-        if (++ticks % 125 == 0) { Diag(L"PollTicks", ticks); Diag(L"TouchEvents", events); Diag(L"IrqLowSeen", irqlow); }
+        if (++ticks % 125 == 0) { Diag(L"PollTicks", ticks); Diag(L"TouchEvents", events); Diag(L"IrqLowSeen", irqlow);
+            Diag(L"TouchOk", c->TouchOk); Diag(L"FeatCalls", c->FeatCalls); Diag(L"FeatLastId", c->FeatLastId);
+            Diag(L"FeatLastLen", c->FeatLastLen); Diag(L"SetFeatCalls", c->SetFeatCalls); Diag(L"TouchReps", c->TouchReps);
+            Diag(L"MouseReps", c->MouseReps); Diag(L"ReadsDone", c->ReadsDone); Diag(L"OtherIoctl", c->OtherIoctl); Diag(L"LastIoctl", c->LastIoctl); }
         if (!c->HwOk) continue;
         if (!(Rd(c->PinAlive + 0x20, 0x4) & 1)) irqlow++;
         /* IRQ line low = events pending */
@@ -686,22 +692,37 @@ VOID EvtInternalIoctl(WDFQUEUE q, WDFREQUEST req, size_t outLen, size_t inLen, U
         if (NT_SUCCESS(WdfRequestRetrieveInputMemory(req, &in))) {
             PUCHAR p = (PUCHAR)WdfMemoryGetBuffer(in, &inl); if (inl) id = p[0];
         }
-        if (!NT_SUCCESS(WdfRequestRetrieveOutputMemory(req, &out))) { st = STATUS_INVALID_PARAMETER; Diag(L"FeatErr", 1); break; }
+        if (!NT_SUCCESS(WdfRequestRetrieveOutputMemory(req, &out))) {
+            /* fall back to a raw HID_XFER_PACKET in Irp->UserBuffer */
+            PHID_XFER_PACKET pk = (PHID_XFER_PACKET)WdfRequestWdmGetIrp(req)->UserBuffer;
+            InterlockedIncrement(&c->FeatCalls); c->FeatLastLen = -1;
+            st = STATUS_INVALID_PARAMETER;
+            if (pk && pk->reportBuffer && pk->reportBufferLen >= 2) {
+                c->FeatLastId = pk->reportId;
+                if (pk->reportId == 4) { pk->reportBuffer[0] = 4; pk->reportBuffer[1] = MAX_CONTACTS; info = 2; st = STATUS_SUCCESS; InterlockedExchange(&c->TouchOk, 1); }
+                else if (pk->reportId == 5 && pk->reportBufferLen >= 3) { pk->reportBuffer[0] = 5; pk->reportBuffer[1] = 2; pk->reportBuffer[2] = 0; info = 3; st = STATUS_SUCCESS; }
+            }
+            break;
+        }
         WdfMemoryGetBuffer(out, &outl);
         if (!id && outl) WdfMemoryCopyToBuffer(out, 0, &id, 1);
         if (id == 4)      { rep[0] = 4; rep[1] = MAX_CONTACTS; n = 2; InterlockedExchange(&c->TouchOk, 1); }
         else if (id == 5) { rep[0] = 5; rep[1] = 2; rep[2] = 0; n = 3; }
-        Diag(L"FeatId", id); Diag(L"FeatOutLen", (ULONG)outl);
+        InterlockedIncrement(&c->FeatCalls); c->FeatLastId = id; c->FeatLastLen = (LONG)outl;
         if (!n || outl < n) { st = STATUS_INVALID_PARAMETER; break; }
         st = WdfMemoryCopyFromBuffer(out, 0, rep, n);
         if (NT_SUCCESS(st)) info = n;
         break; }
     case IOCTL_HID_SET_FEATURE:
+        InterlockedIncrement(&c->SetFeatCalls);
+        st = STATUS_SUCCESS;
+        break;
     case IOCTL_HID_ACTIVATE_DEVICE:
     case IOCTL_HID_DEACTIVATE_DEVICE:
         st = STATUS_SUCCESS;
         break;
     default:
+        InterlockedIncrement(&c->OtherIoctl); c->LastIoctl = (LONG)code;
         break;
     }
     WdfRequestCompleteWithInformation(req, st, info);
