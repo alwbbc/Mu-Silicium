@@ -490,6 +490,18 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
             status = UfsExec(e, 0, Srb->Cdb, Srb->CdbLength, Srb->DataTransferLength, toDev,
                              segs, nsegs, (PUCHAR)Srb->SenseInfoBuffer, Srb->SenseInfoBufferLength, &st);
             Srb->ScsiStatus = st;
+            if (status == SRB_STATUS_ERROR && Srb->Cdb[0] != 0x28 && Srb->Cdb[0] != 0x2A &&
+                Srb->Cdb[0] != 0x88 && Srb->Cdb[0] != 0x8A && Srb->SenseInfoBuffer &&
+                Srb->SenseInfoBufferLength >= 14) {
+                /* the host rejected the UPIU (OCS error) for a command the device does
+                 * not implement (e.g. GET LBA STATUS): report ILLEGAL REQUEST /
+                 * INVALID COMMAND OPERATION CODE so Windows stops retrying it */
+                PUCHAR sn = (PUCHAR)Srb->SenseInfoBuffer;
+                RtlZeroMemory(sn, Srb->SenseInfoBufferLength);
+                sn[0] = 0x70; sn[2] = 0x05; sn[7] = 10; sn[12] = 0x20; sn[13] = 0x00;
+                Srb->ScsiStatus = SCSISTAT_CHECK_CONDITION;
+                status = SRB_STATUS_ERROR | SRB_STATUS_AUTOSENSE_VALID;
+            }
             e->LastSrb = status;
             if (status == SRB_STATUS_SUCCESS && !toDev) {
                 if (Srb->Cdb[0] == 0x25 && Srb->DataTransferLength >= 8 && Srb->DataBuffer) {
