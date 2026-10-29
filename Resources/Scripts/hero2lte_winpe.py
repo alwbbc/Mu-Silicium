@@ -25,7 +25,8 @@ else:
     def walk(path):
         for child in iso.list_children(udf_path=path):
             if child is None or child.is_dot() or child.is_dotdot(): continue
-            name = child.file_identifier().decode('utf-8', 'replace')
+            fid = child.file_identifier()
+            name = fid.decode('utf-16-be') if (len(fid) % 2 == 0 and fid[:1] == b'\x00') else fid.decode('utf-8', 'replace')
             p = (path.rstrip('/') + '/' + name)
             if child.is_dir():
                 if any(w.startswith(p.lower().lstrip('/') + '/') or p.lower().lstrip('/').startswith(w.rstrip('/')) for w in WANT): walk(p)
