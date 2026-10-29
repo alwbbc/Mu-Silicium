@@ -16,14 +16,14 @@ SEQ = {'⌫': b'\x7f', '⏎': b'\r', 'Tab': b'\t', 'Esc': b'\x1b', '←': b'\x1b
 
 class App(Gtk.Window):
     def __init__(self):
-        super().__init__(title='hero2-term')
+        super().__init__(title='hero2-term'); self.set_decorated(False)
         self.shift = self.ctrl = False; self.layer = 'abc'
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL); self.add(box)
         self.term = Vte.Terminal(); self.term.set_font(Pango.FontDescription('DejaVu Sans Mono 8'))
         self.term.set_scrollback_lines(5000)
         self.term.spawn_async(Vte.PtyFlags.DEFAULT, '/root', ['/bin/sh', '-l'],
                               ['TERM=xterm-256color', 'HOME=/root', 'PATH=/usr/sbin:/usr/bin:/sbin:/bin'],
-                              GLib.SpawnFlags.DEFAULT, None, None, -1, None, None)
+                              GLib.SpawnFlags.DEFAULT, None, None, -1, None, lambda t, pid, err, *u: print('SPAWN', pid, err, flush=True))
         self.term.connect('child-exited', lambda *a: Gtk.main_quit())
         sw = Gtk.ScrolledWindow(); sw.add(self.term); sw.set_vexpand(True)
         box.pack_start(sw, True, True, 0)
