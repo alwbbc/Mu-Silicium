@@ -1,0 +1,44 @@
+  .text
+  .globl tramp
+// placed at diag+0x400; vectors at diag+0x800
+tramp:
+  adr x9, tramp
+  sub x12, x9, #0x400
+  ldr x10, [x9, #0x80]
+  mrs x11, mpidr_el1
+  and x11, x11, #0xff
+  add x13, x10, x11, lsl #4
+  ldp x1, x0, [x13]
+  add x14, x12, x11, lsl #5
+  movz w15, #0x7A00, lsl #16
+  orr w15, w15, w11
+  str w15, [x14, #0x40]
+  stp x0, x1, [x14, #0x48]
+  movz x15, #0x30D0, lsl #16
+  movk x15, #0x0800
+  msr sctlr_el1, x15
+  add x15, x12, #0x800
+  msr vbar_el1, x15
+  isb
+  dsb sy
+  br x1
+  .balign 0x400
+vec:
+  .irp k, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+  .balign 0x80
+  mrs x0, esr_el1
+  mrs x1, elr_el1
+  mrs x2, far_el1
+  adr x3, .
+  and x3, x3, #~0xFFF
+  mrs x4, mpidr_el1
+  and x4, x4, #0xff
+  add x3, x3, x4, lsl #5
+  add x3, x3, #0x300
+  stp x0, x1, [x3]
+  mov x5, #(\k + 0xE0)
+  stp x2, x5, [x3, #0x10]
+  dsb sy
+1: wfe
+  b 1b
+  .endr
