@@ -75,6 +75,8 @@ if exist W:\Windows\Panther\unattend.xml move /y W:\Windows\Panther\unattend.xml
 echo [+] OOBE atlanacak: ilk acilista S7 hesabi olusturulacak
 :nooobe
 if exist W:\hero2\skipoobe.log type W:\hero2\skipoobe.log
+echo [+] dokunmatik:
+reg query HKLM\OFFSYS\ControlSet001\Services\hero2touch\Parameters 2>nul | find "Feat"
 reg unload HKLM\OFFSYS >nul
 echo [3/3] son cokmeler (Kernel-Power 41 / BugCheck 1001):
 wevtutil qe W:\Windows\System32\winevt\Logs\System.evtx /lf:true /q:"*[System[(EventID=41 or EventID=1001)]]" /c:1 /rd:true /f:xml

@@ -149,6 +149,16 @@ static const UCHAR ReportDescriptor[] = {
     0x75, 0x01, 0x95, 0x02, 0x81, 0x02,
     0x75, 0x06, 0x95, 0x01, 0x81, 0x03,
     0xC0,
+    /* report 6: absolute mouse, used until Windows starts the touch collection */
+    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x06, 0x09, 0x01, 0xA1, 0x00,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x01, 0x15, 0x00, 0x25, 0x01,
+    0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
+    0x75, 0x07, 0x95, 0x01, 0x81, 0x03,
+    0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x00, 0x26, 0xFF, 0x0F,
+    0x35, 0x00, 0x46, 0xFF, 0x0F,
+    0x75, 0x10, 0x95, 0x02, 0x81, 0x02,
+    0x45, 0x00,
+    0xC0, 0xC0,
     /* feature 5: device configuration (input mode / device index) */
     0x05, 0x0D, 0x09, 0x0E, 0xA1, 0x01, 0x85, 0x05, 0x09, 0x23, 0xA1, 0x02,
     0x09, 0x52, 0x09, 0x53, 0x15, 0x00, 0x25, 0x0A, 0x75, 0x08, 0x95, 0x02, 0xB1, 0x02,
@@ -159,6 +169,7 @@ typedef struct { UCHAR Tip; UCHAR Id; USHORT X; USHORT Y; } CONTACT;
 typedef struct { UCHAR Id; CONTACT C[MAX_CONTACTS]; UCHAR Count; } TOUCH_REPORT;
 typedef struct { UCHAR Id; UCHAR Mods; UCHAR Rsvd; UCHAR Keys[6]; } KBD_REPORT;
 typedef struct { UCHAR Id; UCHAR Bits; } CC_REPORT;
+typedef struct { UCHAR Id; UCHAR Buttons; USHORT X; USHORT Y; } MOUSE_REPORT;
 #include <poppack.h>
 #define QSZ 40
 C_ASSERT(sizeof(TOUCH_REPORT) <= QSZ);
@@ -174,6 +185,7 @@ typedef struct _DEV_CTX {
     PKTHREAD Thread;
     KEVENT StopEvent;
     BOOLEAN HwOk;
+    volatile LONG TouchOk;     /* touch collection queried us -> send touch, not mouse */
     UCHAR Q[16][QSZ];           /* pending raw reports */
     UCHAR QLen[16];
     ULONG QHead, QCount;
@@ -305,6 +317,7 @@ static NTSTATUS I2cWrite(PUCHAR r, UCHAR addr, const UCHAR *data, ULONG len)
 static void Diag(PCWSTR name, ULONG value)
 {
     WDFKEY key; UNICODE_STRING n;
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) return;
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(WdfGetDriver(), KEY_WRITE, WDF_NO_OBJECT_ATTRIBUTES, &key)))
         return;
     RtlInitUnicodeString(&n, name);
@@ -448,6 +461,17 @@ typedef struct { BOOLEAN Used, Down; UCHAR Tid; USHORT X, Y; } SLOT;
  * once with Tip=0 and are then freed */
 static void PublishTouch(PDEV_CTX c, SLOT *sl)
 {
+    if (!c->TouchOk) {
+        /* fallback: first contact as an absolute mouse */
+        static MOUSE_REPORT last = { 6, 0, 0, 0 };
+        MOUSE_REPORT m = last; m.Buttons = 0;
+        for (int i = 0; i < MAX_CONTACTS; i++)
+            if (sl[i].Used && sl[i].Down) { m.Buttons = 1; m.X = sl[i].X; m.Y = sl[i].Y; break; }
+        for (int i = 0; i < MAX_CONTACTS; i++) if (sl[i].Used && !sl[i].Down) sl[i].Used = FALSE;
+        Enqueue(c, &m, sizeof(m), (BOOLEAN)(m.Buttons && last.Buttons));
+        last = m;
+        return;
+    }
     TOUCH_REPORT r; RtlZeroMemory(&r, sizeof(r)); r.Id = 1;
     for (int i = 0; i < MAX_CONTACTS; i++) {
         if (!sl[i].Used) continue;
@@ -656,13 +680,21 @@ VOID EvtInternalIoctl(WDFQUEUE q, WDFREQUEST req, size_t outLen, size_t inLen, U
         if (NT_SUCCESS(st)) { TryComplete(c); return; }
         break;
     case IOCTL_HID_GET_FEATURE: {
-        PHID_XFER_PACKET pk = (PHID_XFER_PACKET)WdfRequestWdmGetIrp(req)->UserBuffer;
-        if (!pk || !pk->reportBuffer) { st = STATUS_INVALID_PARAMETER; break; }
-        if (pk->reportId == 4 && pk->reportBufferLen >= 2) {
-            pk->reportBuffer[0] = 4; pk->reportBuffer[1] = MAX_CONTACTS; info = 2; st = STATUS_SUCCESS;
-        } else if (pk->reportId == 5 && pk->reportBufferLen >= 3) {
-            pk->reportBuffer[0] = 5; pk->reportBuffer[1] = 2; pk->reportBuffer[2] = 0; info = 3; st = STATUS_SUCCESS;
-        } else st = STATUS_INVALID_PARAMETER;
+        /* mshidkmdf: report id in the input buffer, report in the output buffer */
+        WDFMEMORY in, out; size_t inl = 0, outl = 0; UCHAR id = 0, rep[3];
+        ULONG n = 0;
+        if (NT_SUCCESS(WdfRequestRetrieveInputMemory(req, &in))) {
+            PUCHAR p = (PUCHAR)WdfMemoryGetBuffer(in, &inl); if (inl) id = p[0];
+        }
+        if (!NT_SUCCESS(WdfRequestRetrieveOutputMemory(req, &out))) { st = STATUS_INVALID_PARAMETER; Diag(L"FeatErr", 1); break; }
+        WdfMemoryGetBuffer(out, &outl);
+        if (!id && outl) WdfMemoryCopyToBuffer(out, 0, &id, 1);
+        if (id == 4)      { rep[0] = 4; rep[1] = MAX_CONTACTS; n = 2; InterlockedExchange(&c->TouchOk, 1); }
+        else if (id == 5) { rep[0] = 5; rep[1] = 2; rep[2] = 0; n = 3; }
+        Diag(L"FeatId", id); Diag(L"FeatOutLen", (ULONG)outl);
+        if (!n || outl < n) { st = STATUS_INVALID_PARAMETER; break; }
+        st = WdfMemoryCopyFromBuffer(out, 0, rep, n);
+        if (NT_SUCCESS(st)) info = n;
         break; }
     case IOCTL_HID_SET_FEATURE:
     case IOCTL_HID_ACTIVATE_DEVICE:
