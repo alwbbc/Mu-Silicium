@@ -22,11 +22,12 @@
 #include <Library/CacheMaintenanceLib.h>
 
 /* ---- SMP probe: can Samsung's EL3 start the other A53 cores? ---------- */
-/* secondary entry (MMU off, x0 = mailbox): mailbox[aff0] = 0xC0DE0000|CurrentEL,
- * then PSCI CPU_OFF */
+/* secondary entry (MMU off): box = page+0x800 (PC relative), per CPU 32 bytes:
+ * +0 0xC0DE0000|CurrentEL, +8/+16/+24 = x0/x1/x2 at entry; then PSCI CPU_OFF */
 STATIC CONST UINT32 mCpuProbeCode[] = {
-  0xD53800A1, 0x92401C21, 0xD5384242, 0x52B81BC3, 0x2A020063, 0xB8217803, 0xD5033F9F,
-  0xD50B7E20, 0xD5033F9F, 0x52B08000, 0x72800040, 0xD4000003, 0xD503205F, 0x17FFFFFF
+  0x10004009, 0xD53800AB, 0x92401D6B, 0x8B0B152A, 0xF9000540, 0xF9000941, 0xF9000D42, 0xD538424C,
+  0x52B81BCD, 0x2A0C01AD, 0xB900014D, 0xD5033F9F, 0x52B08000, 0x72800040, 0xD4000003, 0xD503205F,
+  0x17FFFFFF
 };
 
 STATIC VOID
@@ -47,7 +48,7 @@ CpuProbe (VOID)
 
   Args.Arg0 = 0x84000000;                    /* PSCI_VERSION */
   ArmCallSmc (&Args);
-  Print (L"  PSCI_VERSION -> %lx\n", Args.Arg0);
+  Print (L"  PSCI_VERSION -> %lx  box=%lx\n", Args.Arg0, (UINT64)(UINTN)Box);
 
   for (Cpu = 1; Cpu < 4; Cpu++) {
     ZeroMem (&Args, sizeof (Args));
@@ -56,12 +57,14 @@ CpuProbe (VOID)
     Args.Arg2 = Page;
     Args.Arg3 = (UINTN)Box;
     ArmCallSmc (&Args);
-    for (Wait = 0; Wait < 200; Wait++) {
-      InvalidateDataCacheRange ((VOID *)Box, 64);
-      if (Box[Cpu]) break;
+    __builtin_arm_sev ();
+    for (Wait = 0; Wait < 1000; Wait++) {
+      InvalidateDataCacheRange ((VOID *)Box, 256);
+      if (Box[Cpu * 8]) break;
       gBS->Stall (1000);
     }
-    Print (L"  CPU_ON 0x10%d -> %d, mark %08x (%d ms)\n", Cpu, (INT32)Args.Arg0, Box[Cpu], Wait);
+    Print (L"  CPU_ON 0x10%d -> %d, mark %08x (%d ms) x0=%lx x1=%lx x2=%lx\n", Cpu, (INT32)Args.Arg0, Box[Cpu * 8], Wait,
+           *(volatile UINT64 *)&Box[Cpu * 8 + 2], *(volatile UINT64 *)&Box[Cpu * 8 + 4], *(volatile UINT64 *)&Box[Cpu * 8 + 6]);
   }
 }
 
