@@ -1,0 +1,19 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = ErrataPatchesLib
+  FILE_GUID                      = 7C1E2B40-8890-4F1A-9B52-5E0A1C3D8890
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = ErrataPatchesLib|DXE_DRIVER
+
+[Sources]
+  ErrataPatchesLib.c
+  ShellCode.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  CacheMaintenanceLib

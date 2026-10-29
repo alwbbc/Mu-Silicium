@@ -76,6 +76,11 @@
   ResetSystemLib|S5E8890Pkg/Library/ResetSystemLib/ResetSystemLib.inf
 
   #
+  # Winload/Kernel Patches (CNTFRQ + PSCI reset -> EFI ResetSystem)
+  #
+  ErrataPatchesLib|S5E8890Pkg/Library/ErrataPatchesLib/ErrataPatchesLib.inf
+
+  #
   # Memory Libraries
   #
   RamManagerLib|SiliciumNullPkg/Library/RamManagerLibNull/RamManagerLibNull.inf
