@@ -1,18 +1,20 @@
 #!/bin/sh
-echo "Galaxy S7 Edge - Alpine on Mu-Silicium UEFI"
-echo "CPUs: $(nproc)  $(grep MemTotal /proc/meminfo)  $(date)"
-echo "waiting for deferred probes (uptime $(cut -d. -f1 /proc/uptime)s)..."
+echo "Galaxy S7 Edge - Alpine on Mu-Silicium UEFI | CPUs: $(nproc) | $(grep MemTotal /proc/meminfo | tr -s ' ')"
 while [ $(cut -d. -f1 /proc/uptime) -lt 20 ]; do sleep 1; done
-echo "--- driver binding ---"
-for d in 10550000.i2c 14e10000.i2c 13690000.i2c 10570000.clock-controller 14c90000.pinctrl 14ca0000.pinctrl 14cc0000.pinctrl 14cd0000.pinctrl 14ce0000.pinctrl; do
-  p=/sys/bus/platform/devices/$d
-  if [ -e $p/driver ]; then echo "$d: bound to $(basename $(readlink $p/driver))";
-  elif [ -e $p ]; then echo "$d: NOT bound $(cat $p/waiting_for_supplier 2>/dev/null)"; else echo "$d: no device"; fi
-done
-echo "i2c devices: $(ls /sys/bus/i2c/devices | tr '\n' ' ')"
-echo "--- dmesg: errors / deferred / touch ---"
-dmesg | grep -iE "defer|pending|fail|error|s6sa|touch|14e10000|hsi2c|regulator|ldo3[23]|supply" | grep -v "using zero-initial" | tail -n 25
-echo "--- input devices ---"
+mount -t debugfs none /sys/kernel/debug 2>/dev/null
+echo "--- deferred probes (debugfs) ---"
+cat /sys/kernel/debug/devices_deferred 2>&1 | head -n 15
+echo "--- touch 1-0048 ---"
+t=/sys/bus/i2c/devices/1-0048
+echo "driver: $(basename "$(readlink $t/driver 2>/dev/null)" 2>/dev/null)  waiting: $(cat $t/waiting_for_supplier 2>/dev/null)"
+for s in $t/supplier:*; do [ -e "$s" ] && echo "  supplier $(basename $s): status=$(cat $s/status 2>/dev/null)"; done
+echo "--- regulators ---"
+for r in /sys/class/regulator/regulator.*; do n=$(cat $r/name); case "$n" in *ldo3[23]*|*ldo1*|*ldo3|vdd_ldo3*|*touch*|*tsp*) echo "$n: $(cat $r/state 2>/dev/null) $(cat $r/microvolts 2>/dev/null)uV";; esac; done
+echo "regulator count: $(ls -d /sys/class/regulator/regulator.* | wc -l)"
+echo "--- unbound platform devices ---"
+for d in /sys/bus/platform/devices/*; do [ -e $d/driver ] || printf "%s " $(basename $d); done; echo
+echo "--- dmesg tail (warnings) ---"
+dmesg | grep -iE "defer|fail|error|s6sa|s2mps|regulator|supply|probe" | grep -v "zero-initial\|Kernel command" | tail -n 12
+echo "--- input ---"
 grep -E "^N:" /proc/bus/input/devices
-echo "--- events ---"
 exec /usr/bin/keylog
