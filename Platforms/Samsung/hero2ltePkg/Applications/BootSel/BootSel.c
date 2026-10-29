@@ -30,6 +30,28 @@ STATIC CONST UINT32 mCpuProbeCode[] = {
   0x17FFFFFF
 };
 
+/* log left by the previous Windows boot (ErrataPatchesLib SmpPatch) */
+STATIC VOID
+SmpDiag (VOID)
+{
+  volatile UINT64 *D = (volatile UINT64 *)(UINTN)0xFDC00000;
+  UINTN            Cpu;
+
+  InvalidateDataCacheRange ((VOID *)D, EFI_PAGE_SIZE);
+  Print (L"  SMP: patch %lx slot %lx", D[0], D[1]);
+  for (Cpu = 1; Cpu < 4; Cpu++)
+    Print (L" | %x ctx %lx", (UINT32)D[8 + Cpu * 4], D[9 + Cpu * 4]);
+  Print (L"\n");
+  if (D[1] >= 0x80000000 && D[1] < 0x100000000ull) {
+    volatile UINT64 *S = (volatile UINT64 *)(UINTN)D[1];
+    Print (L"  slot:");
+    for (Cpu = 1; Cpu < 4; Cpu++) Print (L" %lx/%lx", S[Cpu * 2], S[Cpu * 2 + 1]);
+    Print (L" tr %lx\n", S[16]);
+  }
+  ZeroMem ((VOID *)D, 0x100);
+  WriteBackInvalidateDataCacheRange ((VOID *)D, EFI_PAGE_SIZE);
+}
+
 STATIC VOID
 CpuProbe (VOID)
 {
@@ -192,6 +214,8 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Print (L"  Home        : WinPE   %s\n", Win ? L"" : L"(not found)");
   Print (L"  Power       : UEFI Shell\n\n");
   if (gST->ConIn != NULL && 0) CpuProbe ();   /* SMP probe, kept for debugging */
+  SmpDiag ();
+  Print (L"\n");
 
   gBS->CreateEvent (EVT_TIMER, 0, NULL, NULL, &Timer);
   gBS->SetTimer (Timer, TimerPeriodic, 10000000);  /* 1 s */

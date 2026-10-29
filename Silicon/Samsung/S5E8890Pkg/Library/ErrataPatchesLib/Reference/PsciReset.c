@@ -74,12 +74,24 @@ static u64 va_to_pa(u64 va)
   return (par & 0xFFFFFFFFF000ull) | (va & 0xFFF);
 }
 
+/* diagnostics page (reserved in the UEFI memory map, survives a warm reset;
+ * BootSel prints it): +0 SmpPatch stage, +8 slot PA, +0x40+aff0*32 trampoline marks */
+#define SMP_DIAG_PA 0xFDC00000ull
+/* no globals: this code is copied as a bare blob (no .data/.bss) */
+static void dbg(u32 off, u64 v)
+{
+  if (va_to_pa(SMP_DIAG_PA) != SMP_DIAG_PA) return;      /* identity mapped in winload? */
+  *(volatile u64 *)(SMP_DIAG_PA + off) = v;
+  clean_poc((void *)(SMP_DIAG_PA + off));
+}
+
 static u32 enc_b(u64 from, u64 to, u32 op) { return op | (u32)(((to - from) >> 2) & 0x3FFFFFF); }
 
 void SmpPatch(void *loader_block)
 {
   struct list *head = (struct list *)((char *)loader_block + 0x10);
   struct list *e = head->f;
+  dbg(0, 0x5A01);
   if (e == head) return;
   char *base = *(char **)((char *)e + 0x30);
   u32 size = *(u32 *)((char *)e + 0x40);
@@ -93,13 +105,16 @@ void SmpPatch(void *loader_block)
     if (s[i].name[0] == '.' && s[i].name[1] == 'd' && s[i].name[2] == 'a' && s[i].name[3] == 't' && s[i].name[4] == 'a' && !s[i].name[5])
       { data = base + s[i].va; dataend = s[i].vsize; }
   }
+  dbg(0, 0x5A02);
   if (!text || !data) return;
+  dbg(0, 0x5A03);
 
   /* CPU_ON call site: ldr x9, [x20, #0x40] ; ldr x1, [sp, #0x10] ; bl smc_stub */
   u32 *w = (u32 *)base, n = size / 4, site = 0;
   for (u32 i = 0; i + 2 < n; i++)
     if (w[i] == 0xF9402289u && w[i + 1] == 0xF9400BE1u && (w[i + 2] >> 26) == 0x25) { site = i + 2; break; }
   if (!site) return;
+  dbg(0, 0x5A04);
   /* the function must load CPU_ON (0xC4000003) */
   {
     int ok = 0;
@@ -110,6 +125,7 @@ void SmpPatch(void *loader_block)
       }
     if (!ok) return;
   }
+  dbg(0, 0x5A05);
   u64 sitepc = (u64)&w[site];
   int simm = (int)(w[site] & 0x3FFFFFF); if (simm & 0x2000000) simm -= 0x4000000;
   u64 stub = sitepc + (u64)(long long)simm * 4;
@@ -118,16 +134,24 @@ void SmpPatch(void *loader_block)
   u64 hook = ((u64)text + textend + 15) & ~15ull;
   u64 slot = ((u64)data + dataend + 0xFF) & ~0xFFull;
   if ((hook & 0xFFF) > 0xFC0 || (slot & 0xFFF) > 0xE00) return;     /* must stay in the page */
+  dbg(0, 0x5A06);
   for (u32 k = 0; k < 16; k++) if (((u32 *)hook)[k]) return;
+  dbg(0, 0x5A07);
   for (u32 k = 0; k < 128; k++) if (((u32 *)slot)[k]) return;
+  dbg(0, 0x5A08);
   u64 tramp = slot + 0x100, tramppa = va_to_pa(tramp);
   if (!tramppa) return;
+  dbg(0, 0x5A09);
+  dbg(8, tramppa - 0x100);
 
   /* trampoline + its physical address */
-  static const u32 tr[6] = { 0x10FFF80Au, 0xD53800ABu, 0x92401D6Bu, 0x8B0B114Bu, 0xA9400161u, 0xD61F0020u };
-  for (u32 k = 0; k < 6; k++) ((u32 *)tramp)[k] = tr[k];
+  /* x10 = slot, x11 = aff0, x12 = diag + aff0*32 ; mark, x0 = context, br entry */
+  static const u32 tr[13] = { 0x10FFF80Au, 0xD53800ABu, 0x92401D6Bu, 0xF940454Cu, 0x8B0B158Cu, 0x8B0B114Du, 0xA94001A1u,
+                              0x52AF400Eu, 0x2A0B01CEu, 0xB900418Eu, 0xA9048580u, 0xD5033F9Fu, 0xD61F0020u };
+  for (u32 k = 0; k < 13; k++) ((u32 *)tramp)[k] = tr[k];
   *(u64 *)(slot + 0x80) = tramppa;
-  for (u64 p = slot; p < slot + 0x140; p += 64) clean_poc((void *)p);
+  *(u64 *)(slot + 0x88) = SMP_DIAG_PA;
+  for (u64 p = slot; p < slot + 0x180; p += 64) clean_poc((void *)p);
 
   /* hook: adrp/add x10 = slot ; save ; x2 = trampoline ; b smc_stub */
   u32 *h = (u32 *)hook;
@@ -141,4 +165,5 @@ void SmpPatch(void *loader_block)
 
   w[site] = enc_b(sitepc, hook, 0x94000000u);                  /* bl hook */
   sync_icache(&w[site]);
+  dbg(0, 0x5A0F);
 }

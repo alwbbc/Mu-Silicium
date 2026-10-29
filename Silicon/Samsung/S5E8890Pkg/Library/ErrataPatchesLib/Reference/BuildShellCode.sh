@@ -20,5 +20,6 @@ ASM
 clang --target=aarch64-none-elf -c /tmp/pro.S -o /tmp/pro.o
 printf 'SECTIONS { . = 0; .text : { /tmp/pro.o(.text) /tmp/psci.o(.text*) end_of_prologue = ALIGN(4); } /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) } }' > /tmp/ld.x
 ld.lld -T /tmp/ld.x /tmp/pro.o /tmp/psci.o -o /tmp/psci.elf
+if llvm-readelf -S /tmp/psci.elf | grep -qE '\.(data|bss|rodata)'; then echo "error: globals/rodata in shell code" >&2; exit 1; fi
 llvm-objcopy -O binary --only-section=.text /tmp/psci.elf /tmp/psci.bin
 llvm-objdump -d /tmp/psci.elf
