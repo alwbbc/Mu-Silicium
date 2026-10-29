@@ -56,13 +56,17 @@ reg query HKLM\OFFSYS\Setup /v SystemSetupInProgress 2>nul | find "REG_"
 reg query HKLM\OFFSYS\Setup /v OOBEInProgress 2>nul | find "REG_"
 reg query HKLM\OFFSYS\Setup\Status\ChildCompletion 2>nul | find "REG_"
 rem "beklenmedik sekilde yeniden baslatildi" dongusunu kir: setup.exe asamasi tamam (3)
-reg query HKLM\OFFSYS\Setup\Status\ChildCompletion /v setup.exe >nul 2>&1 && reg add HKLM\OFFSYS\Setup\Status\ChildCompletion /v setup.exe /t REG_DWORD /d 3 /f >nul && echo [+] ChildCompletion\setup.exe = 3 yapildi
+reg add HKLM\OFFSYS\Setup\Status\ChildCompletion /v setup.exe /t REG_DWORD /d 3 /f >nul && echo [+] ChildCompletion\setup.exe = 3 yapildi
+rem kurulum ekranlarini atla: yerel hesap "S7" (sifresiz, otomatik giris)
+if not exist W:\Windows\Panther mkdir W:\Windows\Panther
+copy /y X:\hero2drv\unattend.xml W:\Windows\Panther\unattend.xml >nul && echo [+] unattend.xml kopyalandi (kurulum ekranlari atlanacak)
+reg query HKLM\OFFSYS\Setup /v UnattendFile >nul 2>&1 && reg delete HKLM\OFFSYS\Setup /v UnattendFile /f >nul
 reg unload HKLM\OFFSYS >nul
 echo [3/3] son cokmeler (Kernel-Power 41 / BugCheck 1001):
 wevtutil qe W:\Windows\System32\winevt\Logs\System.evtx /lf:true /q:"*[System[(EventID=41 or EventID=1001)]]" /c:1 /rd:true /f:xml
 echo.
-echo FOTOGRAF CEK. 120 saniye sonra telefon yeniden baslayacak.
-ping -n 120 127.0.0.1 >nul
+echo FOTOGRAF CEK. 30 saniye sonra telefon yeniden baslayacak.
+ping -n 30 127.0.0.1 >nul
 wpeutil reboot
 goto end
 
