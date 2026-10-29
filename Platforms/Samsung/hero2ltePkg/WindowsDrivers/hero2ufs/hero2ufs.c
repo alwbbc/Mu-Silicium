@@ -224,6 +224,9 @@ ULONG HwFindAdapter(PVOID DevExt, PVOID HwContext, PVOID BusInfo, PCHAR Arg,
 
     Diag(L"FindAdapter", 1);
     Diag(L"AccessRanges", Cfg->NumberOfAccessRanges);
+    Diag(L"InterfaceType", (ULONG)Cfg->AdapterInterfaceType);
+    Diag(L"IrqLevel", Cfg->BusInterruptLevel);
+    Diag(L"IrqVector", Cfg->BusInterruptVector);
     ar = &((*(Cfg->AccessRanges))[0]);
     if (ar->RangeLength == 0) { Diag(L"FindAdapterFail", 1); return SP_RETURN_NOT_FOUND; }
     e->Hci = (PUCHAR)StorPortGetDeviceBase(e, Cfg->AdapterInterfaceType, Cfg->SystemIoBusNumber,
@@ -252,6 +255,7 @@ ULONG HwFindAdapter(PVOID DevExt, PVOID HwContext, PVOID BusInfo, PCHAR Arg,
     e->Utrd = (UTRD *)(e->Base + OFF_UTRL);
     e->Ucd = (UCD *)(e->Base + OFF_UCD);
 
+    Wr(e, REG_IE, 0);              /* we poll; keep the GIC line quiet */
     Diag(L"HCE", Rd(e, REG_HCE));
     Diag(L"HCS", Rd(e, REG_HCS));
     Diag(L"UcdPaHi", (ULONG)e->BasePa.HighPart);
@@ -265,6 +269,7 @@ BOOLEAN HwInitialize(PVOID DevExt)
     STOR_PHYSICAL_ADDRESS utrl, utmrl;
     ULONG spins;
 
+    Diag(L"HwInitialize", 1);
     utrl.QuadPart = e->BasePa.QuadPart + OFF_UTRL;
     utmrl.QuadPart = e->BasePa.QuadPart + OFF_UTMRL;
 
@@ -359,7 +364,18 @@ BOOLEAN HwStartIo(PVOID DevExt, PSCSI_REQUEST_BLOCK Srb)
     return TRUE;
 }
 
-BOOLEAN HwInterrupt(PVOID DevExt) { UNREFERENCED_PARAMETER(DevExt); return FALSE; }
+BOOLEAN HwInterrupt(PVOID DevExt)
+{
+    /* interrupts stay disabled (IE = 0); if the line ever fires, mask and ack it */
+    PHW_EXT e = (PHW_EXT)DevExt;
+    ULONG is;
+    if (!e->Hci) return FALSE;
+    is = Rd(e, REG_IS);
+    if (!is) return FALSE;
+    Wr(e, REG_IE, 0);
+    Wr(e, REG_IS, is);
+    return TRUE;
+}
 BOOLEAN HwResetBus(PVOID DevExt, ULONG PathId) { UNREFERENCED_PARAMETER(DevExt); UNREFERENCED_PARAMETER(PathId); return TRUE; }
 
 SCSI_ADAPTER_CONTROL_STATUS HwAdapterControl(PVOID DevExt, SCSI_ADAPTER_CONTROL_TYPE Type, PVOID Params)

@@ -1,7 +1,7 @@
 //
 // Galaxy S7 Edge (hero2lte) / Exynos 8890 DSDT: Cortex-A53 cluster only.
 //
-DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 5)
+DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 6)
 {
     Scope (\_SB)
     {
@@ -52,6 +52,8 @@ DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 5)
             Name (_CRS, ResourceTemplate ()
             {
                 Memory32Fixed (ReadWrite, 0x155A0000, 0x00003000)
+                // GIC SPI 209 (DT: interrupts = <0 0xd1 0>); kept masked, the miniport polls
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 241 }
             })
         }
 
