@@ -83,17 +83,34 @@
 
 /* ---- HID: absolute pointer, 1 button, X/Y 0..4095 ---------------------- */
 static const UCHAR ReportDescriptor[] = {
-    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x09, 0x01, 0xA1, 0x00,
+    /* report 1: absolute pointer, 1 button, X/Y 0..4095 */
+    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x01, 0x09, 0x01, 0xA1, 0x00,
     0x05, 0x09, 0x19, 0x01, 0x29, 0x01, 0x15, 0x00, 0x25, 0x01,
     0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
     0x75, 0x07, 0x95, 0x01, 0x81, 0x03,
     0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x00, 0x26, 0xFF, 0x0F,
     0x35, 0x00, 0x46, 0xFF, 0x0F,
     0x75, 0x10, 0x95, 0x02, 0x81, 0x02,
-    0xC0, 0xC0
+    0xC0, 0xC0,
+    /* report 2: keyboard (modifiers + 6 keys); Home key = Left GUI */
+    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x02,
+    0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
+    0x75, 0x01, 0x95, 0x08, 0x81, 0x02,
+    0x75, 0x08, 0x95, 0x01, 0x81, 0x03,
+    0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x15, 0x00, 0x25, 0x65,
+    0x75, 0x08, 0x95, 0x06, 0x81, 0x00,
+    0xC0,
+    /* report 3: consumer control, volume up / down */
+    0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x03,
+    0x09, 0xE9, 0x09, 0xEA, 0x15, 0x00, 0x25, 0x01,
+    0x75, 0x01, 0x95, 0x02, 0x81, 0x02,
+    0x75, 0x06, 0x95, 0x01, 0x81, 0x03,
+    0xC0
 };
 #include <pshpack1.h>
-typedef struct { UCHAR Buttons; USHORT X; USHORT Y; } TOUCH_REPORT;
+typedef struct { UCHAR Id; UCHAR Buttons; USHORT X; USHORT Y; } TOUCH_REPORT;
+typedef struct { UCHAR Id; UCHAR Mods; UCHAR Rsvd; UCHAR Keys[6]; } KBD_REPORT;
+typedef struct { UCHAR Id; UCHAR Bits; } CC_REPORT;
 #include <poppack.h>
 
 static const HID_DESCRIPTOR HidDescriptor = {
@@ -107,8 +124,9 @@ typedef struct _DEV_CTX {
     PKTHREAD Thread;
     KEVENT StopEvent;
     BOOLEAN HwOk;
-    TOUCH_REPORT Last;
-    BOOLEAN Pending;           /* a report waits for a read request */
+    UCHAR Q[16][12];           /* pending raw reports */
+    UCHAR QLen[16];
+    ULONG QHead, QCount;
     KSPIN_LOCK Lock;
 } DEV_CTX, *PDEV_CTX;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEV_CTX, GetCtx)
@@ -294,35 +312,59 @@ static NTSTATUS HwInit(PDEV_CTX c)
 /* ---- report delivery --------------------------------------------------- */
 static void TryComplete(PDEV_CTX c)
 {
-    WDFREQUEST req;
-    TOUCH_REPORT rep;
+    for (;;) {
+        WDFREQUEST req;
+        UCHAR buf[12]; ULONG len;
+        KIRQL irql;
+
+        KeAcquireSpinLock(&c->Lock, &irql);
+        if (!c->QCount) { KeReleaseSpinLock(&c->Lock, irql); return; }
+        if (!NT_SUCCESS(WdfIoQueueRetrieveNextRequest(c->ReadQueue, &req))) {
+            KeReleaseSpinLock(&c->Lock, irql); return;
+        }
+        len = c->QLen[c->QHead];
+        RtlCopyMemory(buf, c->Q[c->QHead], len);
+        c->QHead = (c->QHead + 1) % 16; c->QCount--;
+        KeReleaseSpinLock(&c->Lock, irql);
+
+        {
+            WDFMEMORY mem; NTSTATUS st = WdfRequestRetrieveOutputMemory(req, &mem);
+            if (NT_SUCCESS(st)) st = WdfMemoryCopyFromBuffer(mem, 0, buf, len);
+            WdfRequestCompleteWithInformation(req, st, NT_SUCCESS(st) ? len : 0);
+        }
+    }
+}
+
+static void Enqueue(PDEV_CTX c, const void *rep, ULONG len, BOOLEAN coalesce)
+{
     KIRQL irql;
-
     KeAcquireSpinLock(&c->Lock, &irql);
-    if (!c->Pending) { KeReleaseSpinLock(&c->Lock, irql); return; }
-    rep = c->Last;
-    if (!NT_SUCCESS(WdfIoQueueRetrieveNextRequest(c->ReadQueue, &req))) {
-        KeReleaseSpinLock(&c->Lock, irql); return;
+    if (coalesce && c->QCount) {
+        /* replace the newest report if it has the same ID (pointer moves) */
+        ULONG last = (c->QHead + c->QCount - 1) % 16;
+        if (c->Q[last][0] == ((const UCHAR *)rep)[0] && c->QLen[last] == len) {
+            RtlCopyMemory(c->Q[last], rep, len);
+            KeReleaseSpinLock(&c->Lock, irql); TryComplete(c); return;
+        }
     }
-    c->Pending = FALSE;
-    KeReleaseSpinLock(&c->Lock, irql);
-
+    if (c->QCount == 16) { c->QHead = (c->QHead + 1) % 16; c->QCount--; }
     {
-        WDFMEMORY mem; NTSTATUS st = WdfRequestRetrieveOutputMemory(req, &mem);
-        if (NT_SUCCESS(st)) st = WdfMemoryCopyFromBuffer(mem, 0, &rep, sizeof(rep));
-        WdfRequestCompleteWithInformation(req, st, NT_SUCCESS(st) ? sizeof(rep) : 0);
+        ULONG slot = (c->QHead + c->QCount) % 16;
+        RtlCopyMemory(c->Q[slot], rep, len); c->QLen[slot] = (UCHAR)len; c->QCount++;
     }
+    KeReleaseSpinLock(&c->Lock, irql);
+    TryComplete(c);
 }
 
 static void Publish(PDEV_CTX c, BOOLEAN down, USHORT x, USHORT y)
 {
-    KIRQL irql;
-    KeAcquireSpinLock(&c->Lock, &irql);
-    c->Last.Buttons = down ? 1 : 0;
-    if (down) { c->Last.X = x; c->Last.Y = y; }
-    c->Pending = TRUE;
-    KeReleaseSpinLock(&c->Lock, irql);
-    TryComplete(c);
+    static TOUCH_REPORT last = { 1, 0, 0, 0 };
+    TOUCH_REPORT r = last;
+    r.Id = 1; r.Buttons = down ? 1 : 0;
+    if (down) { r.X = x; r.Y = y; }
+    /* only coalesce plain moves; button transitions must never be lost */
+    Enqueue(c, &r, sizeof(r), (BOOLEAN)(down && last.Buttons));
+    last = r;
 }
 
 /* ---- polling thread ---------------------------------------------------- */
@@ -333,10 +375,24 @@ static VOID PollThread(PVOID ctx)
     UCHAR ev[8];
     BOOLEAN down = FALSE;
     UCHAR active_tid = 0xFF;
+    BOOLEAN home = FALSE, vup = FALSE, vdn = FALSE;
 
     for (;;) {
         if (KeWaitForSingleObject(&c->StopEvent, Executive, KernelMode, FALSE, &period) == STATUS_SUCCESS)
             break;
+        if (c->PinAlive) {
+            /* keys are active low: Home gpa0-5, VolUp gpa0-3, VolDown gpa0-4 */
+            ULONG d = Rd(c->PinAlive, 0x4);
+            BOOLEAN h = !(d & (1u << 5)), u = !(d & (1u << 3)), v = !(d & (1u << 4));
+            if (h != home) {
+                KBD_REPORT k; RtlZeroMemory(&k, sizeof(k)); k.Id = 2; k.Mods = h ? 0x08 : 0;
+                Enqueue(c, &k, sizeof(k), FALSE); home = h;
+            }
+            if (u != vup || v != vdn) {
+                CC_REPORT cc; cc.Id = 3; cc.Bits = (UCHAR)((u ? 1 : 0) | (v ? 2 : 0));
+                Enqueue(c, &cc, sizeof(cc), FALSE); vup = u; vdn = v;
+            }
+        }
         if (!c->HwOk) continue;
         /* IRQ line low = events pending */
         for (int n = 0; n < 16 && !(Rd(c->PinAlive + 0x20, 0x4) & 1); n++) {
@@ -358,7 +414,7 @@ static VOID PollThread(PVOID ctx)
                 Publish(c, FALSE, 0, 0);
             }
         }
-        if (down) TryComplete(c);
+        TryComplete(c);
     }
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
