@@ -20,6 +20,8 @@ echo "CPUs online: $(cat /sys/devices/system/cpu/online)  ($(nproc) cores)"
 grep -E "MemTotal|MemAvailable" /proc/meminfo
 echo "--- kernel warnings/errors ---"
 dmesg | grep -iE "error|fail|warn" | tail -n 8
+echo "--- input devices ---"
+grep -E "^N:" /proc/bus/input/devices
 echo "--- starting udev ---"
 /sbin/udevd --daemon 2>/dev/null && udevadm trigger && udevadm settle -t 5
 ls -l /dev/dri 2>&1

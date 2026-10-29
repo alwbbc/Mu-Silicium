@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/weston-terminal --shell=/usr/bin/keylog
