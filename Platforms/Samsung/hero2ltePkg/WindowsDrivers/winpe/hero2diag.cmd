@@ -61,6 +61,20 @@ rem kurulum ekranlarini atla: yerel hesap "S7" (sifresiz, otomatik giris)
 if not exist W:\Windows\Panther mkdir W:\Windows\Panther
 copy /y X:\hero2drv\unattend.xml W:\Windows\Panther\unattend.xml >nul && echo [+] unattend.xml kopyalandi (kurulum ekranlari atlanacak)
 reg query HKLM\OFFSYS\Setup /v UnattendFile >nul 2>&1 && reg delete HKLM\OFFSYS\Setup /v UnattendFile /f >nul
+rem OOBE takiliyorsa tamamen atla: acilista SYSTEM olarak skipoobe.cmd calisir
+reg query HKLM\OFFSYS\Setup /v OOBEInProgress 2>nul | find "0x1" >nul || goto nooobe
+if not exist W:\hero2 mkdir W:\hero2
+copy /y X:\hero2drv\skipoobe.cmd W:\hero2\skipoobe.cmd >nul
+reg add HKLM\OFFSYS\Setup /v CmdLine /t REG_SZ /d "cmd.exe /c C:\hero2\skipoobe.cmd" /f >nul
+reg add HKLM\OFFSYS\Setup /v SetupType /t REG_DWORD /d 2 /f >nul
+reg add HKLM\OFFSYS\Setup /v SystemSetupInProgress /t REG_DWORD /d 1 /f >nul
+reg add HKLM\OFFSYS\Setup /v OOBEInProgress /t REG_DWORD /d 0 /f >nul
+if exist W:\Windows\Panther\unattend.xml move /y W:\Windows\Panther\unattend.xml W:\hero2\unattend.xml.off >nul
+(echo [State]
+ echo ImageState=IMAGE_STATE_COMPLETE) > W:\Windows\Setup\State\State.ini
+echo [+] OOBE atlanacak: ilk acilista S7 hesabi olusturulacak
+:nooobe
+if exist W:\hero2\skipoobe.log type W:\hero2\skipoobe.log
 reg unload HKLM\OFFSYS >nul
 echo [3/3] son cokmeler (Kernel-Power 41 / BugCheck 1001):
 wevtutil qe W:\Windows\System32\winevt\Logs\System.evtx /lf:true /q:"*[System[(EventID=41 or EventID=1001)]]" /c:1 /rd:true /f:xml
