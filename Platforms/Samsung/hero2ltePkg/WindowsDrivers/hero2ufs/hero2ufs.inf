@@ -1,0 +1,50 @@
+; hero2ufs.inf - Exynos 8890 UFS host (Galaxy S7 Edge), Storport miniport
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = SCSIAdapter
+ClassGuid   = {4D36E97B-E325-11CE-BFC1-08002BE10318}
+Provider    = %Prov%
+DriverVer   = 10/29/2026,1.0.0.0
+CatalogFile = hero2ufs.cat
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %Disk%
+
+[SourceDisksFiles]
+hero2ufs.sys = 1
+
+[Manufacturer]
+%Prov% = Std, NTarm64
+
+[Std.NTarm64]
+%Dev% = Ufs_Inst, ACPI\HERO0155
+
+[Ufs_Inst.NT]
+CopyFiles = Ufs_Copy
+
+[Ufs_Copy]
+hero2ufs.sys
+
+[Ufs_Inst.NT.Services]
+AddService = hero2ufs, 0x00000002, Ufs_Svc
+
+[Ufs_Svc]
+DisplayName   = %Dev%
+ServiceType   = 1
+StartType     = 0
+ErrorControl  = 1
+ServiceBinary = %12%\hero2ufs.sys
+LoadOrderGroup = SCSI Miniport
+AddReg        = Ufs_StorportReg
+
+[Ufs_StorportReg]
+HKR, "Parameters", "BusType", 0x00010001, 0x00000013
+HKR, "Parameters", "IoTimeoutValue", 0x00010001, 0x0000001E
+
+[Strings]
+Prov = "Project Silicium hero2lte"
+Disk = "hero2ufs disk"
+Dev  = "Exynos 8890 UFS Host Controller (hero2lte)"

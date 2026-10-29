@@ -1,7 +1,7 @@
 //
 // Galaxy S7 Edge (hero2lte) / Exynos 8890 DSDT: Cortex-A53 cluster only.
 //
-DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 4)
+DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 5)
 {
     Scope (\_SB)
     {
@@ -35,6 +35,24 @@ DefinitionBlock ("DSDT.aml", "DSDT", 2, "SAMSUN", "S5E8890 ", 4)
             Name (_UID, 3)
 
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
+
+        //
+        // UFS host (UFSHCI + Exynos vendor regs, UniPro, PMA, UFSP).
+        // Link is brought up by UEFI; hero2ufs.sys only issues UTP commands.
+        //
+        Device (UFS0)
+        {
+            Name (_HID, "HERO0155")
+            Name (_UID, 0)
+            Name (_CCA, 0)
+
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x155A0000, 0x00003000)
+            })
         }
 
         //
