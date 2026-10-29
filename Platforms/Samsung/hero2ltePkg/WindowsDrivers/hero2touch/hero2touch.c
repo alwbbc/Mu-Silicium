@@ -6,7 +6,7 @@
  *   - turns on S2MPS16 LDO32 (1.85V vdd) and LDO33 (3.3V avdd)
  *   - initialises the S6SA552 controller at 0x48 on HSI2C7
  *   - polls the touch IRQ line (gpa1-0, active low) and reports the first
- *     finger as an absolute HID mouse (tap = left click).
+ *     fingers as a 5-contact HID touch screen; keys as HID keyboard/consumer.
  *
  * The register layout follows Linux i2c-exynos5.c, pinctrl-exynos and the
  * s6sa552 driver by Ivaylo Ivanov (GPL-2.0), so this file is GPL-2.0 too.
@@ -81,18 +81,61 @@
 #define TS_CLEAR_EVENTS    0x60
 #define TS_MAX             4095
 
-/* ---- HID: absolute pointer, 1 button, X/Y 0..4095 ---------------------- */
+/* ---- HID ---------------------------------------------------------------- */
+#define MAX_CONTACTS 5
 static const UCHAR ReportDescriptor[] = {
-    /* report 1: absolute pointer, 1 button, X/Y 0..4095 */
-    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x01, 0x09, 0x01, 0xA1, 0x00,
-    0x05, 0x09, 0x19, 0x01, 0x29, 0x01, 0x15, 0x00, 0x25, 0x01,
-    0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
-    0x75, 0x07, 0x95, 0x01, 0x81, 0x03,
-    0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x00, 0x26, 0xFF, 0x0F,
-    0x35, 0x00, 0x46, 0xFF, 0x0F,
-    0x75, 0x10, 0x95, 0x02, 0x81, 0x02,
-    0xC0, 0xC0,
-    /* report 2: keyboard (modifiers + 6 keys); Home key = Left GUI */
+    /* report 1: multi-touch screen, 5 contacts (parallel mode) */
+    0x05, 0x0D, 0x09, 0x04, 0xA1, 0x01, 0x85, 0x01,
+    0x05, 0x0D, 0x09, 0x22, 0xA1, 0x02,
+    0x09, 0x42, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
+    0x75, 0x07, 0x81, 0x03,
+    0x09, 0x51, 0x25, 0x0F, 0x75, 0x08, 0x81, 0x02,
+    0x05, 0x01, 0x26, 0xFF, 0x0F, 0x75, 0x10, 0x55, 0x0E, 0x65, 0x11,
+    0x09, 0x30, 0x46, 0xAD, 0x02, 0x81, 0x02,      /* X, 68.5 mm */
+    0x09, 0x31, 0x46, 0xC2, 0x04, 0x81, 0x02,      /* Y, 121.8 mm */
+    0x55, 0x00, 0x65, 0x00, 0x45, 0x00,
+    0xC0,
+    0x05, 0x0D, 0x09, 0x22, 0xA1, 0x02,
+    0x09, 0x42, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
+    0x75, 0x07, 0x81, 0x03,
+    0x09, 0x51, 0x25, 0x0F, 0x75, 0x08, 0x81, 0x02,
+    0x05, 0x01, 0x26, 0xFF, 0x0F, 0x75, 0x10, 0x55, 0x0E, 0x65, 0x11,
+    0x09, 0x30, 0x46, 0xAD, 0x02, 0x81, 0x02,      /* X, 68.5 mm */
+    0x09, 0x31, 0x46, 0xC2, 0x04, 0x81, 0x02,      /* Y, 121.8 mm */
+    0x55, 0x00, 0x65, 0x00, 0x45, 0x00,
+    0xC0,
+    0x05, 0x0D, 0x09, 0x22, 0xA1, 0x02,
+    0x09, 0x42, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
+    0x75, 0x07, 0x81, 0x03,
+    0x09, 0x51, 0x25, 0x0F, 0x75, 0x08, 0x81, 0x02,
+    0x05, 0x01, 0x26, 0xFF, 0x0F, 0x75, 0x10, 0x55, 0x0E, 0x65, 0x11,
+    0x09, 0x30, 0x46, 0xAD, 0x02, 0x81, 0x02,      /* X, 68.5 mm */
+    0x09, 0x31, 0x46, 0xC2, 0x04, 0x81, 0x02,      /* Y, 121.8 mm */
+    0x55, 0x00, 0x65, 0x00, 0x45, 0x00,
+    0xC0,
+    0x05, 0x0D, 0x09, 0x22, 0xA1, 0x02,
+    0x09, 0x42, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
+    0x75, 0x07, 0x81, 0x03,
+    0x09, 0x51, 0x25, 0x0F, 0x75, 0x08, 0x81, 0x02,
+    0x05, 0x01, 0x26, 0xFF, 0x0F, 0x75, 0x10, 0x55, 0x0E, 0x65, 0x11,
+    0x09, 0x30, 0x46, 0xAD, 0x02, 0x81, 0x02,      /* X, 68.5 mm */
+    0x09, 0x31, 0x46, 0xC2, 0x04, 0x81, 0x02,      /* Y, 121.8 mm */
+    0x55, 0x00, 0x65, 0x00, 0x45, 0x00,
+    0xC0,
+    0x05, 0x0D, 0x09, 0x22, 0xA1, 0x02,
+    0x09, 0x42, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x01, 0x81, 0x02,
+    0x75, 0x07, 0x81, 0x03,
+    0x09, 0x51, 0x25, 0x0F, 0x75, 0x08, 0x81, 0x02,
+    0x05, 0x01, 0x26, 0xFF, 0x0F, 0x75, 0x10, 0x55, 0x0E, 0x65, 0x11,
+    0x09, 0x30, 0x46, 0xAD, 0x02, 0x81, 0x02,      /* X, 68.5 mm */
+    0x09, 0x31, 0x46, 0xC2, 0x04, 0x81, 0x02,      /* Y, 121.8 mm */
+    0x55, 0x00, 0x65, 0x00, 0x45, 0x00,
+    0xC0,
+    0x05, 0x0D, 0x09, 0x54, 0x15, 0x00, 0x25, MAX_CONTACTS, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02,
+    /* feature 4: contact count maximum */
+    0x85, 0x04, 0x09, 0x55, 0x25, MAX_CONTACTS, 0xB1, 0x02,
+    0xC0,
+    /* report 2: keyboard (modifiers + 6 keys); Home = Left GUI, Power = Win+L */
     0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x02,
     0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01,
     0x75, 0x01, 0x95, 0x08, 0x81, 0x02,
@@ -105,13 +148,20 @@ static const UCHAR ReportDescriptor[] = {
     0x09, 0xE9, 0x09, 0xEA, 0x15, 0x00, 0x25, 0x01,
     0x75, 0x01, 0x95, 0x02, 0x81, 0x02,
     0x75, 0x06, 0x95, 0x01, 0x81, 0x03,
-    0xC0
+    0xC0,
+    /* feature 5: device configuration (input mode / device index) */
+    0x05, 0x0D, 0x09, 0x0E, 0xA1, 0x01, 0x85, 0x05, 0x09, 0x23, 0xA1, 0x02,
+    0x09, 0x52, 0x09, 0x53, 0x15, 0x00, 0x25, 0x0A, 0x75, 0x08, 0x95, 0x02, 0xB1, 0x02,
+    0xC0, 0xC0
 };
 #include <pshpack1.h>
-typedef struct { UCHAR Id; UCHAR Buttons; USHORT X; USHORT Y; } TOUCH_REPORT;
+typedef struct { UCHAR Tip; UCHAR Id; USHORT X; USHORT Y; } CONTACT;
+typedef struct { UCHAR Id; CONTACT C[MAX_CONTACTS]; UCHAR Count; } TOUCH_REPORT;
 typedef struct { UCHAR Id; UCHAR Mods; UCHAR Rsvd; UCHAR Keys[6]; } KBD_REPORT;
 typedef struct { UCHAR Id; UCHAR Bits; } CC_REPORT;
 #include <poppack.h>
+#define QSZ 40
+C_ASSERT(sizeof(TOUCH_REPORT) <= QSZ);
 
 static const HID_DESCRIPTOR HidDescriptor = {
     sizeof(HID_DESCRIPTOR), 0x21, 0x0101, 0x00, 0x01,
@@ -124,7 +174,7 @@ typedef struct _DEV_CTX {
     PKTHREAD Thread;
     KEVENT StopEvent;
     BOOLEAN HwOk;
-    UCHAR Q[16][12];           /* pending raw reports */
+    UCHAR Q[16][QSZ];           /* pending raw reports */
     UCHAR QLen[16];
     ULONG QHead, QCount;
     KSPIN_LOCK Lock;
@@ -350,7 +400,7 @@ static void TryComplete(PDEV_CTX c)
 {
     for (;;) {
         WDFREQUEST req;
-        UCHAR buf[12]; ULONG len;
+        UCHAR buf[QSZ]; ULONG len;
         KIRQL irql;
 
         KeAcquireSpinLock(&c->Lock, &irql);
@@ -392,15 +442,20 @@ static void Enqueue(PDEV_CTX c, const void *rep, ULONG len, BOOLEAN coalesce)
     TryComplete(c);
 }
 
-static void Publish(PDEV_CTX c, BOOLEAN down, USHORT x, USHORT y)
+typedef struct { BOOLEAN Used, Down; UCHAR Tid; USHORT X, Y; } SLOT;
+
+/* one parallel-mode report with every tracked contact; lifted ones go out
+ * once with Tip=0 and are then freed */
+static void PublishTouch(PDEV_CTX c, SLOT *sl)
 {
-    static TOUCH_REPORT last = { 1, 0, 0, 0 };
-    TOUCH_REPORT r = last;
-    r.Id = 1; r.Buttons = down ? 1 : 0;
-    if (down) { r.X = x; r.Y = y; }
-    /* only coalesce plain moves; button transitions must never be lost */
-    Enqueue(c, &r, sizeof(r), (BOOLEAN)(down && last.Buttons));
-    last = r;
+    TOUCH_REPORT r; RtlZeroMemory(&r, sizeof(r)); r.Id = 1;
+    for (int i = 0; i < MAX_CONTACTS; i++) {
+        if (!sl[i].Used) continue;
+        CONTACT *k = &r.C[r.Count++];
+        k->Tip = sl[i].Down ? 1 : 0; k->Id = sl[i].Tid; k->X = sl[i].X; k->Y = sl[i].Y;
+        if (!sl[i].Down) sl[i].Used = FALSE;
+    }
+    Enqueue(c, &r, sizeof(r), FALSE);
 }
 
 /* ---- polling thread ---------------------------------------------------- */
@@ -409,10 +464,10 @@ static VOID PollThread(PVOID ctx)
     PDEV_CTX c = (PDEV_CTX)ctx;
     LARGE_INTEGER period; period.QuadPart = -80000; /* 8 ms */
     UCHAR ev[8];
-    BOOLEAN down = FALSE;
-    UCHAR active_tid = 0xFF;
-    BOOLEAN home = FALSE, vup = FALSE, vdn = FALSE;
+    SLOT sl[MAX_CONTACTS];
+    BOOLEAN home = FALSE, vup = FALSE, vdn = FALSE, pwr = FALSE;
     ULONG ticks = 0, events = 0, irqlow = 0;
+    RtlZeroMemory(sl, sizeof(sl));
     Diag(L"PollThread", 1);
 
     for (;;) {
@@ -422,9 +477,11 @@ static VOID PollThread(PVOID ctx)
             /* keys are active low: Home gpa0-5, VolUp gpa0-3, VolDown gpa0-4 */
             ULONG d = Rd(c->PinAlive, 0x4);
             BOOLEAN h = !(d & (1u << 5)), u = !(d & (1u << 3)), v = !(d & (1u << 4));
-            if (h != home) {
-                KBD_REPORT k; RtlZeroMemory(&k, sizeof(k)); k.Id = 2; k.Mods = h ? 0x08 : 0;
-                Enqueue(c, &k, sizeof(k), FALSE); home = h;
+            BOOLEAN p = !(Rd(c->PinAlive + 0x40, 0x4) & (1u << 4));   /* Power gpa2-4 */
+            if (h != home || p != pwr) {
+                KBD_REPORT k; RtlZeroMemory(&k, sizeof(k)); k.Id = 2;
+                k.Mods = (h || p) ? 0x08 : 0; k.Keys[0] = p ? 0x0F : 0;   /* Win, Win+L */
+                Enqueue(c, &k, sizeof(k), FALSE); home = h; pwr = p;
             }
             if (u != vup || v != vdn) {
                 CC_REPORT cc; cc.Id = 3; cc.Bits = (UCHAR)((u ? 1 : 0) | (v ? 2 : 0));
@@ -435,7 +492,8 @@ static VOID PollThread(PVOID ctx)
         if (!c->HwOk) continue;
         if (!(Rd(c->PinAlive + 0x20, 0x4) & 1)) irqlow++;
         /* IRQ line low = events pending */
-        for (int n = 0; n < 16 && !(Rd(c->PinAlive + 0x20, 0x4) & 1); n++) {
+        BOOLEAN changed = FALSE;
+        for (int n = 0; n < 32 && !(Rd(c->PinAlive + 0x20, 0x4) & 1); n++) {
             if (!NT_SUCCESS(I2cReadReg(c->I2c7, TS_ADDR, TS_READ_ONE_EVENT, ev, 8)) || !ev[0])
                 break;
             events++;
@@ -443,18 +501,23 @@ static VOID PollThread(PVOID ctx)
             UCHAR tid = (ev[1] & 0x0F) - 1, state = ev[0] & 7;
             USHORT x = (USHORT)((ev[2] << 4) | (ev[4] >> 4));
             USHORT y = (USHORT)((ev[3] << 4) | (ev[4] & 0x0F));
+            if (x > TS_MAX) x = TS_MAX;
+            if (y > TS_MAX) y = TS_MAX;
+            int i, f = -1;
+            for (i = 0; i < MAX_CONTACTS; i++)
+                if (sl[i].Used && sl[i].Down && sl[i].Tid == tid) break;
             if (state == 1 || state == 2) {
-                if (active_tid == 0xFF) active_tid = tid;
-                if (tid != active_tid) continue;
-                if (x > TS_MAX) x = TS_MAX;
-                if (y > TS_MAX) y = TS_MAX;
-                down = TRUE;
-                Publish(c, TRUE, x, y);
-            } else if (state == 3 && tid == active_tid) {
-                down = FALSE; active_tid = 0xFF;
-                Publish(c, FALSE, 0, 0);
+                if (i == MAX_CONTACTS) {
+                    for (int j = 0; j < MAX_CONTACTS; j++) if (!sl[j].Used) { f = j; break; }
+                    if (f < 0) continue;                       /* > 5 fingers */
+                    i = f; sl[i].Used = TRUE; sl[i].Down = TRUE; sl[i].Tid = tid;
+                }
+                sl[i].X = x; sl[i].Y = y; changed = TRUE;
+            } else if (state == 3 && i < MAX_CONTACTS) {
+                sl[i].Down = FALSE; changed = TRUE;
             }
         }
+        if (changed) PublishTouch(c, sl);
         TryComplete(c);
     }
     PsTerminateSystemThread(STATUS_SUCCESS);
@@ -582,7 +645,7 @@ VOID EvtInternalIoctl(WDFQUEUE q, WDFREQUEST req, size_t outLen, size_t inLen, U
         break;
     case IOCTL_HID_GET_DEVICE_ATTRIBUTES: {
         HID_DEVICE_ATTRIBUTES a; RtlZeroMemory(&a, sizeof(a));
-        a.Size = sizeof(a); a.VendorID = 0x04E8; a.ProductID = 0x0552; a.VersionNumber = 1;
+        a.Size = sizeof(a); a.VendorID = 0x04E8; a.ProductID = 0x0552; a.VersionNumber = 2;
         st = CopyOut(req, &a, sizeof(a), &info);
         break; }
     case IOCTL_HID_GET_REPORT_DESCRIPTOR:
@@ -592,6 +655,16 @@ VOID EvtInternalIoctl(WDFQUEUE q, WDFREQUEST req, size_t outLen, size_t inLen, U
         st = WdfRequestForwardToIoQueue(req, c->ReadQueue);
         if (NT_SUCCESS(st)) { TryComplete(c); return; }
         break;
+    case IOCTL_HID_GET_FEATURE: {
+        PHID_XFER_PACKET pk = (PHID_XFER_PACKET)WdfRequestWdmGetIrp(req)->UserBuffer;
+        if (!pk || !pk->reportBuffer) { st = STATUS_INVALID_PARAMETER; break; }
+        if (pk->reportId == 4 && pk->reportBufferLen >= 2) {
+            pk->reportBuffer[0] = 4; pk->reportBuffer[1] = MAX_CONTACTS; info = 2; st = STATUS_SUCCESS;
+        } else if (pk->reportId == 5 && pk->reportBufferLen >= 3) {
+            pk->reportBuffer[0] = 5; pk->reportBuffer[1] = 2; pk->reportBuffer[2] = 0; info = 3; st = STATUS_SUCCESS;
+        } else st = STATUS_INVALID_PARAMETER;
+        break; }
+    case IOCTL_HID_SET_FEATURE:
     case IOCTL_HID_ACTIVATE_DEVICE:
     case IOCTL_HID_DEACTIVATE_DEVICE:
         st = STATUS_SUCCESS;
