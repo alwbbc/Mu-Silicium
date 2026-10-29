@@ -1,0 +1,10 @@
+#!/bin/sh
+echo "Galaxy S7 Edge - Alpine on Mu-Silicium UEFI"
+echo "CPUs: $(nproc)   $(grep MemTotal /proc/meminfo)"
+echo "Time: $(date)"
+echo "--- input devices ---"
+grep -E "^N:" /proc/bus/input/devices
+echo "--- touch / pmic / i2c ---"
+dmesg | grep -iE "s6sa552|s2mps16|sec_pmic|max77838|exynos5-hsi2c|i2c" | tail -n 12
+echo "--- events (keys) ---"
+exec /usr/bin/keylog

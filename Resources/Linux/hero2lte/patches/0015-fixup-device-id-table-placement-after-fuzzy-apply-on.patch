@@ -1,0 +1,65 @@
+From b5b555c9d56fd7e2e79b8f965946dec0babda4bb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 11:03:09 +0300
+Subject: [PATCH 15/16] fixup: device id table placement after fuzzy apply on
+ 7.3
+
+---
+ drivers/clk/clk-s2mps11.c   | 2 +-
+ drivers/regulator/s2mps11.c | 2 +-
+ drivers/rtc/rtc-s5m.c       | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/clk/clk-s2mps11.c b/drivers/clk/clk-s2mps11.c
+index 66a05277c..38aa28704 100644
+--- a/drivers/clk/clk-s2mps11.c
++++ b/drivers/clk/clk-s2mps11.c
+@@ -232,7 +232,7 @@ static const struct platform_device_id s2mps11_clk_id[] = {
+ 	{ .name = "s2mpg10-clk", .driver_data = S2MPG10 },
+ 	{ .name = "s2mps11-clk", .driver_data = S2MPS11X },
+ 	{ .name = "s2mps13-clk", .driver_data = S2MPS13X },
+-	{ "s2mps16-clk", S2MPS16X},
++	{ .name = "s2mps16-clk", .driver_data = S2MPS16X },
+ 	{ .name = "s2mps14-clk", .driver_data = S2MPS14X },
+ 	{ .name = "s5m8767-clk", .driver_data = S5M8767X },
+ 	{ }
+diff --git a/drivers/regulator/s2mps11.c b/drivers/regulator/s2mps11.c
+index 78499f72b..d87341eb0 100644
+--- a/drivers/regulator/s2mps11.c
++++ b/drivers/regulator/s2mps11.c
+@@ -2418,6 +2418,7 @@ static const struct platform_device_id s2mps11_pmic_id[] = {
+ 	{ .name = "s2mps13-regulator", .driver_data = S2MPS13X },
+ 	{ .name = "s2mps14-regulator", .driver_data = S2MPS14X },
+ 	{ .name = "s2mps15-regulator", .driver_data = S2MPS15X },
++	{ .name = "s2mps16-regulator", .driver_data = S2MPS16X },
+ 	{ .name = "s2mpu02-regulator", .driver_data = S2MPU02 },
+ 	{ .name = "s2mpu05-regulator", .driver_data = S2MPU05 },
+ 	{ }
+@@ -2431,7 +2432,6 @@ static struct platform_driver s2mps11_pmic_driver = {
+ 	},
+ 	.probe = s2mps11_pmic_probe,
+ 	.id_table = s2mps11_pmic_id,
+-	{ "s2mps16-regulator", S2MPS16X},
+ };
+ 
+ module_platform_driver(s2mps11_pmic_driver);
+diff --git a/drivers/rtc/rtc-s5m.c b/drivers/rtc/rtc-s5m.c
+index 98edba214..8587e95d0 100644
+--- a/drivers/rtc/rtc-s5m.c
++++ b/drivers/rtc/rtc-s5m.c
+@@ -827,11 +827,11 @@ static const struct platform_device_id s5m_rtc_id[] = {
+ 	{ .name = "s2mps13-rtc", .driver_data = S2MPS13X },
+ 	{ .name = "s2mps14-rtc", .driver_data = S2MPS14X },
+ 	{ .name = "s2mps15-rtc", .driver_data = S2MPS15X },
++	{ .name = "s2mps16-rtc", .driver_data = S2MPS16X },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(platform, s5m_rtc_id);
+ 
+-	{ "s2mps16-rtc",	S2MPS16X },
+ static struct platform_driver s5m_rtc_driver = {
+ 	.driver		= {
+ 		.name	= "s5m-rtc",
+-- 
+2.43.0
+

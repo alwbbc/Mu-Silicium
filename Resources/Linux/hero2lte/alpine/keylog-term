@@ -1,2 +1,2 @@
 #!/bin/sh
-exec /usr/bin/weston-terminal --shell=/usr/bin/keylog
+exec /usr/bin/weston-terminal --shell=/usr/bin/hero2-status

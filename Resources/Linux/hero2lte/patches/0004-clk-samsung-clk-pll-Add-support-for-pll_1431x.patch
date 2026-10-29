@@ -1,0 +1,47 @@
+From 47b76fd15b175ab2b469811f150d7b2ed39f411e Mon Sep 17 00:00:00 2001
+From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
+Date: Sun, 14 Sep 2025 15:21:15 +0300
+Subject: [PATCH 04/16] clk: samsung: clk-pll: Add support for pll_1431x
+
+The PLL is similar enough to pll_36xx that the same code can be used.
+
+When defining a PLL, the "con" parameter should be set to CON0
+register, like this:
+
+PLL(pll_1431x, CLK_FOUT_SHARED0_PLL, "fout_shared0_pll", "oscclk",
+     PLL_LOCKTIME_PLL_SHARED0, PLL_CON0_PLL_SHARED0,
+     pll_shared0_rate_table),
+
+Signed-off-by: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
+---
+ drivers/clk/samsung/clk-pll.c | 1 +
+ drivers/clk/samsung/clk-pll.h | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/drivers/clk/samsung/clk-pll.c b/drivers/clk/samsung/clk-pll.c
+index 123553d3f..6b3481db4 100644
+--- a/drivers/clk/samsung/clk-pll.c
++++ b/drivers/clk/samsung/clk-pll.c
+@@ -1683,6 +1683,7 @@ static void __init _samsung_clk_register_pll(struct samsung_clk_provider *ctx,
+ 	/* clk_ops for 36xx and 2650 are similar */
+ 	case pll_36xx:
+ 	case pll_2650:
++	case pll_1431x:
+ 		pll->enable_offs = PLL36XX_ENABLE_SHIFT;
+ 		pll->lock_offs = PLL36XX_LOCK_STAT_SHIFT;
+ 		if (!pll->rate_count)
+diff --git a/drivers/clk/samsung/clk-pll.h b/drivers/clk/samsung/clk-pll.h
+index aeffa6d90..c9ffb621e 100644
+--- a/drivers/clk/samsung/clk-pll.h
++++ b/drivers/clk/samsung/clk-pll.h
+@@ -51,6 +51,7 @@ enum samsung_pll_type {
+ 	pll_4311,
+ 	pll_141xx,
+ 	pll_1419x,
++	pll_1431x,
+ 	pll_1017x,
+ 	pll_1031x,
+ 	pll_a9fracm,
+-- 
+2.43.0
+
