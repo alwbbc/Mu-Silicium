@@ -40,11 +40,12 @@ EFI_ACPI_6_6_MULTIPLE_APIC_DESCRIPTION_TABLE MadtTable = {
   //
   // GIC CPU Interfaces
   // Only the Cortex-A53 cluster is exposed: the Mongoose M1 cores have a TLB
-  // conflict errata (see Linux exynos8890.dtsi).
+  // conflict errata (see Linux exynos8890.dtsi). GICD_ITARGETSR0 read on each
+  // A53 core gives 0x01/0x02/0x04/0x08, so they are GIC CPU interfaces 0-3.
   //
   .GicC = {
     //
-    // Core 0 (Cortex-A53, MPIDR 0x100; cluster 1 -> GIC CPU interface 4)
+    // Core 0 (Cortex-A53, MPIDR 0x100; GIC CPU interface 0)
     //
     [0] = {
       .Type                          = EFI_ACPI_6_6_GIC,
@@ -56,13 +57,13 @@ EFI_ACPI_6_6_MULTIPLE_APIC_DESCRIPTION_TABLE MadtTable = {
       .MPIDR                         = 0x100,
       .PerformanceInterruptGsiv      = 57,
       .VGICMaintenanceInterrupt      = 25,
-      .CPUInterfaceNumber            = 4,
+      .CPUInterfaceNumber            = 0,
       .AcpiProcessorUid              = 0,
       .ProcessorPowerEfficiencyClass = 0
     },
 
     //
-    // Core 1 (Cortex-A53, MPIDR 0x101; cluster 1 -> GIC CPU interface 5)
+    // Core 1 (Cortex-A53, MPIDR 0x101; GIC CPU interface 1)
     //
     [1] = {
       .Type                          = EFI_ACPI_6_6_GIC,
@@ -74,13 +75,13 @@ EFI_ACPI_6_6_MULTIPLE_APIC_DESCRIPTION_TABLE MadtTable = {
       .MPIDR                         = 0x101,
       .PerformanceInterruptGsiv      = 58,
       .VGICMaintenanceInterrupt      = 25,
-      .CPUInterfaceNumber            = 5,
+      .CPUInterfaceNumber            = 1,
       .AcpiProcessorUid              = 1,
       .ProcessorPowerEfficiencyClass = 0
     },
 
     //
-    // Core 2 (Cortex-A53, MPIDR 0x102; cluster 1 -> GIC CPU interface 6)
+    // Core 2 (Cortex-A53, MPIDR 0x102; GIC CPU interface 2)
     //
     [2] = {
       .Type                          = EFI_ACPI_6_6_GIC,
@@ -92,13 +93,13 @@ EFI_ACPI_6_6_MULTIPLE_APIC_DESCRIPTION_TABLE MadtTable = {
       .MPIDR                         = 0x102,
       .PerformanceInterruptGsiv      = 59,
       .VGICMaintenanceInterrupt      = 25,
-      .CPUInterfaceNumber            = 6,
+      .CPUInterfaceNumber            = 2,
       .AcpiProcessorUid              = 2,
       .ProcessorPowerEfficiencyClass = 0
     },
 
     //
-    // Core 3 (Cortex-A53, MPIDR 0x103; cluster 1 -> GIC CPU interface 7)
+    // Core 3 (Cortex-A53, MPIDR 0x103; GIC CPU interface 3)
     //
     [3] = {
       .Type                          = EFI_ACPI_6_6_GIC,
@@ -110,7 +111,7 @@ EFI_ACPI_6_6_MULTIPLE_APIC_DESCRIPTION_TABLE MadtTable = {
       .MPIDR                         = 0x103,
       .PerformanceInterruptGsiv      = 60,
       .VGICMaintenanceInterrupt      = 25,
-      .CPUInterfaceNumber            = 7,
+      .CPUInterfaceNumber            = 3,
       .AcpiProcessorUid              = 3,
       .ProcessorPowerEfficiencyClass = 0
     }
