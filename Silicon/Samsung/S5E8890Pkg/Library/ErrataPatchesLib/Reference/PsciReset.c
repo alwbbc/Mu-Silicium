@@ -53,8 +53,8 @@ void PsciResetPatch(void *loader_block)
  *   - slot page = slack after ntoskrnl's .data section (mapped, zero, unused):
  *       +0x00 + aff0*16 : { entry, context } for each core
  *       +0x80           : physical address of the trampoline
- *       +0x100          : trampoline (runs with the MMU off on the new core):
- *                         x0 = context, br entry
+ *   - trampoline in the low diag page (runs with the MMU off on the new core):
+ *       x0 = context, br entry
  *   - hook = slack after .text: called instead of the SMC stub at the CPU_ON
  *     call site; saves { entry, context } in the core's slot, cleans it to
  *     memory and passes the trampoline as the entry point instead.
@@ -139,19 +139,22 @@ void SmpPatch(void *loader_block)
   dbg(0, 0x5A07);
   for (u32 k = 0; k < 128; k++) if (((u32 *)slot)[k]) return;
   dbg(0, 0x5A08);
-  u64 tramp = slot + 0x100, tramppa = va_to_pa(tramp);
-  if (!tramppa) return;
+  u64 slotpa = va_to_pa(slot);
+  if (!slotpa || va_to_pa(SMP_DIAG_PA) != SMP_DIAG_PA) return;
   dbg(0, 0x5A09);
-  dbg(8, tramppa - 0x100);
+  dbg(8, slotpa);
 
-  /* trampoline + its physical address */
-  /* x10 = slot, x11 = aff0, x12 = diag + aff0*32 ; mark, x0 = context, br entry */
-  static const u32 tr[13] = { 0x10FFF80Au, 0xD53800ABu, 0x92401D6Bu, 0xF940454Cu, 0x8B0B158Cu, 0x8B0B114Du, 0xA94001A1u,
-                              0x52AF400Eu, 0x2A0B01CEu, 0xB900418Eu, 0xA9048580u, 0xD5033F9Fu, 0xD61F0020u };
-  for (u32 k = 0; k < 13; k++) ((u32 *)tramp)[k] = tr[k];
-  *(u64 *)(slot + 0x80) = tramppa;
-  *(u64 *)(slot + 0x88) = SMP_DIAG_PA;
-  for (u64 p = slot; p < slot + 0x180; p += 64) clean_poc((void *)p);
+  /* trampoline in the (low, < 4 GB) diag page: Samsung's EL3 may only take a
+   * 32-bit entry point, and ntoskrnl can be loaded above 4 GB.
+   * x9 = tramp, x10 = slot PA, x11 = aff0, x12 = diag + aff0*32: mark, x0 = context, br entry */
+  static const u32 tr[14] = { 0x10000009u, 0xD120012Cu, 0xF940412Au, 0xD53800ABu, 0x92401D6Bu, 0x8B0B114Du, 0xA94001A1u,
+                              0x8B0B158Cu, 0x52AF400Eu, 0x2A0B01CEu, 0xB900418Eu, 0xA9048580u, 0xD5033F9Fu, 0xD61F0020u };
+  u64 tramp = SMP_DIAG_PA + 0x800;
+  for (u32 k = 0; k < 14; k++) ((volatile u32 *)tramp)[k] = tr[k];
+  *(volatile u64 *)(tramp + 0x80) = slotpa;
+  for (u64 p = tramp; p < tramp + 0xC0; p += 64) clean_poc((void *)p);
+  *(u64 *)(slot + 0x80) = tramp;                                 /* entry point the hook passes */
+  for (u64 p = slot; p < slot + 0xC0; p += 64) clean_poc((void *)p);
 
   /* hook: adrp/add x10 = slot ; save ; x2 = trampoline ; b smc_stub */
   u32 *h = (u32 *)hook;

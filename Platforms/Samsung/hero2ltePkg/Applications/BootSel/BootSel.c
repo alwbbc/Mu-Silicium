@@ -42,7 +42,7 @@ SmpDiag (VOID)
   for (Cpu = 1; Cpu < 4; Cpu++)
     Print (L" | %x ctx %lx", (UINT32)D[8 + Cpu * 4], D[9 + Cpu * 4]);
   Print (L"\n");
-  if (D[1] >= 0x80000000 && D[1] < 0x100000000ull) {
+  if (D[1] >= 0x80000000 && D[1] < 0x900000000ull) {
     volatile UINT64 *S = (volatile UINT64 *)(UINTN)D[1];
     Print (L"  slot:");
     for (Cpu = 1; Cpu < 4; Cpu++) Print (L" %lx/%lx", S[Cpu * 2], S[Cpu * 2 + 1]);
