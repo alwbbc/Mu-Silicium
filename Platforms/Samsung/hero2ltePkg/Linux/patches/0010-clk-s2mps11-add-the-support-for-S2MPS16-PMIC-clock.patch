@@ -1,0 +1,57 @@
+From d036d0e580cf9f582014a13fd6370859589003f8 Mon Sep 17 00:00:00 2001
+From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
+Date: Sun, 14 Sep 2025 15:42:25 +0300
+Subject: [PATCH 10/18] clk: s2mps11: add the support for S2MPS16 PMIC clock
+
+Add the support for S2MPS16 PMIC clock, which is functionally the same
+as the currently supported ones, with the exception of a different
+register.
+
+Signed-off-by: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
+---
+ drivers/clk/clk-s2mps11.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/clk/clk-s2mps11.c b/drivers/clk/clk-s2mps11.c
+index fa5ac8f67..66a05277c 100644
+--- a/drivers/clk/clk-s2mps11.c
++++ b/drivers/clk/clk-s2mps11.c
+@@ -15,6 +15,7 @@
+ #include <linux/mfd/samsung/s2mps11.h>
+ #include <linux/mfd/samsung/s2mps13.h>
+ #include <linux/mfd/samsung/s2mps14.h>
++#include <linux/mfd/samsung/s2mps16.h>
+ #include <linux/mfd/samsung/s5m8767.h>
+ #include <linux/mfd/samsung/core.h>
+ 
+@@ -153,6 +154,9 @@ static int s2mps11_clk_probe(struct platform_device *pdev)
+ 	case S2MPS14X:
+ 		s2mps11_reg = S2MPS14_REG_RTCCTRL;
+ 		break;
++	case S2MPS16X:
++		s2mps11_reg = S2MPS16_REG_RTC_BUF;
++		break;
+ 	case S5M8767X:
+ 		s2mps11_reg = S5M8767_REG_CTRL1;
+ 		break;
+@@ -228,6 +232,7 @@ static const struct platform_device_id s2mps11_clk_id[] = {
+ 	{ .name = "s2mpg10-clk", .driver_data = S2MPG10 },
+ 	{ .name = "s2mps11-clk", .driver_data = S2MPS11X },
+ 	{ .name = "s2mps13-clk", .driver_data = S2MPS13X },
++	{ "s2mps16-clk", S2MPS16X},
+ 	{ .name = "s2mps14-clk", .driver_data = S2MPS14X },
+ 	{ .name = "s5m8767-clk", .driver_data = S5M8767X },
+ 	{ }
+@@ -257,6 +262,9 @@ static const struct of_device_id s2mps11_dt_match[] __used = {
+ 	}, {
+ 		.compatible = "samsung,s2mps14-clk",
+ 		.data = (void *)S2MPS14X,
++	}, {
++		.compatible = "samsung,s2mps16-clk",
++		.data = (void *)S2MPS16X,
+ 	}, {
+ 		.compatible = "samsung,s5m8767-clk",
+ 		.data = (void *)S5M8767X,
+-- 
+2.43.0
+

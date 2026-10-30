@@ -1,0 +1,66 @@
+From c62cfbefe72110c91d50fa277fa63c6b432462be Mon Sep 17 00:00:00 2001
+From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
+Date: Sun, 14 Sep 2025 15:21:13 +0300
+Subject: [PATCH 02/18] clk: samsung: clk-pll: Add support for pll_141xx
+
+The PLL is similar to pll_35xx, with the exception of a different
+Locktime - 150 instead of 270, as with pll_142xx.
+
+When defining a PLL, the "con" parameter should be set to CON0
+register, like this:
+
+PLL(pll_141xx, CLK_FOUT_SHARED0_PLL, "fout_shared0_pll", "oscclk",
+    PLL_LOCKTIME_PLL_SHARED0, PLL_CON0_PLL_SHARED0,
+    pll_shared0_rate_table),
+
+Signed-off-by: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
+---
+ drivers/clk/samsung/clk-pll.c | 5 ++++-
+ drivers/clk/samsung/clk-pll.h | 1 +
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/samsung/clk-pll.c b/drivers/clk/samsung/clk-pll.c
+index e74552846..af269cd9a 100644
+--- a/drivers/clk/samsung/clk-pll.c
++++ b/drivers/clk/samsung/clk-pll.c
+@@ -274,7 +274,8 @@ static int samsung_pll35xx_set_rate(struct clk_hw *hw, unsigned long drate,
+ 	}
+ 
+ 	/* Set PLL lock time. */
+-	if (pll->type == pll_142xx || pll->type == pll_1017x || pll->type == pll_a9fracm)
++	if (pll->type == pll_142xx || pll->type == pll_141xx || pll->type == pll_1017x ||
++	    pll->type == pll_a9fracm)
+ 		writel_relaxed(rate->pdiv * PLL142XX_LOCK_FACTOR,
+ 			pll->lock_reg);
+ 	else
+@@ -288,6 +289,7 @@ static int samsung_pll35xx_set_rate(struct clk_hw *hw, unsigned long drate,
+ 	tmp |= (rate->mdiv << mdiv_shift) |
+ 			(rate->pdiv << PLL35XX_PDIV_SHIFT) |
+ 			(rate->sdiv << PLL35XX_SDIV_SHIFT);
++
+ 	writel_relaxed(tmp, pll->con_reg);
+ 
+ 	/* Wait for PLL lock if the PLL is enabled */
+@@ -1632,6 +1634,7 @@ static void __init _samsung_clk_register_pll(struct samsung_clk_provider *ctx,
+ 	case pll_1450x:
+ 	case pll_1451x:
+ 	case pll_1452x:
++	case pll_141xx:
+ 	case pll_142xx:
+ 	case pll_1017x:
+ 	case pll_a9fracm:
+diff --git a/drivers/clk/samsung/clk-pll.h b/drivers/clk/samsung/clk-pll.h
+index d6eb32466..92d04bef3 100644
+--- a/drivers/clk/samsung/clk-pll.h
++++ b/drivers/clk/samsung/clk-pll.h
+@@ -49,6 +49,7 @@ enum samsung_pll_type {
+ 	pll_0718x,
+ 	pll_0732x,
+ 	pll_4311,
++	pll_141xx,
+ 	pll_1017x,
+ 	pll_1031x,
+ 	pll_a9fracm,
+-- 
+2.43.0
+
