@@ -136,7 +136,7 @@ void SmpPatch(void *loader_block)
   dbg(0, 0x5A02);
   if (!text || !data) return;
   dbg(0, 0x5A03);
-  TimerPatch(base, s, nsec);
+  if (0) TimerPatch(base, s, nsec);   /* physical timer: disabled while testing PPI 30 on the APs */
 
   /* CPU_ON call site: ldr x9, [x20, #0x40] ; ldr x1, [sp, #0x10] ; bl smc_stub */
   u32 *w = (u32 *)base, n = size / 4, site = 0;

@@ -13,7 +13,7 @@
   # Timer
   #
   # hero2lte kernel log: "Architected cp15 timer(s) running at 26.00MHz (virt)"
-  USE_PHYSICAL_TIMER                         = 1
+  USE_PHYSICAL_TIMER                         = 0
 
   #
   # KEP

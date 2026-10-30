@@ -173,11 +173,14 @@ SmpDiag (VOID)
     if (D[0x63 + Cpu * 4])
       Print (L"  c%d EXC vec %lx esr %lx elr %lx far %lx\n", Cpu, D[0x63 + Cpu * 4] - 0xE0, D[0x60 + Cpu * 4],
              D[0x61 + Cpu * 4], D[0x62 + Cpu * 4]);
-  if (D[1] >= 0x80000000 && D[1] < 0x900000000ull) {
+  if (D[0] == 0x5A0F && D[1] >= 0x880000000ull && D[1] < 0x900000000ull) {   /* only trust a complete SmpPatch log */
     volatile UINT64 *S = (volatile UINT64 *)(UINTN)D[1];
     Print (L"  slot:");
     for (Cpu = 1; Cpu < 4; Cpu++) Print (L" %lx/%lx", S[Cpu * 2], S[Cpu * 2 + 1]);
     Print (L" tr %lx\n", S[16]);
+    /* ntoskrnl is loaded physically contiguous: slot is at RVA 0xD18400.
+     * RVA 0xD17DC0 = how long HAL waited (ms) for the last core to report in */
+    Print (L"  hal wait %x\n", *(volatile UINT32 *)(UINTN)(D[1] - 0xD18400 + 0xD17DC0));
   }
   ZeroMem ((VOID *)D, 0x200);
   ZeroMem ((VOID *)((UINTN)D + 0x300), 0x100);

@@ -41,9 +41,7 @@ EFI_ACPI_6_6_GENERIC_TIMER_DESCRIPTION_TABLE GtdtTable = {
   //
   // Virtual EL1 Timer
   //
-  // ntoskrnl is patched to use the physical timer (CNTVOFF_EL2 is random per core),
-  // so the "virtual" timer interrupt is the physical timer PPI
-  .VirtualTimerGSIV              = FixedPcdGet32 (PcdArmArchTimerIntrNum),
+  .VirtualTimerGSIV              = FixedPcdGet32 (PcdArmArchTimerVirtIntrNum),
   .VirtualTimerFlags             = EFI_ACPI_6_6_GTDT_TIMER_FLAG_TIMER_INTERRUPT_POLARITY | EFI_ACPI_6_6_GTDT_TIMER_FLAG_ALWAYS_ON_CAPABILITY,
 
   //
