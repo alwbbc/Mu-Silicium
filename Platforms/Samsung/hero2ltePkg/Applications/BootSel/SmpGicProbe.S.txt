@@ -1,0 +1,36 @@
+  .text
+  .globl _start
+// AP probe: which of SGI0-15 / PPI27 (virt timer) / PPI30 (phys timer) are
+// non-secure (enable bits stick for a non-secure write), plus CNTVCT-CNTPCT.
+// box = _start+0x800, per cpu 32 bytes: +0 mark, +8 enable readback, +16 vct-pct, +24 enable before
+_start:
+  adr x9, _start + 0x800
+  mrs x11, mpidr_el1
+  and x11, x11, #0xff
+  add x10, x9, x11, lsl #5
+  movz x14, #0x1100, lsl #16
+  movk x14, #0x1000
+  ldr w13, [x14, #0x100]
+  str x13, [x10, #24]
+  movz w12, #0x4800, lsl #16
+  movk w12, #0xFFFF
+  str w12, [x14, #0x100]
+  dsb sy
+  ldr w13, [x14, #0x100]
+  str x13, [x10, #8]
+  str w12, [x14, #0x180]
+  dsb sy
+  isb
+  mrs x12, cntvct_el0
+  mrs x13, cntpct_el0
+  sub x12, x12, x13
+  str x12, [x10, #16]
+  movz w13, #0xC0DE, lsl #16
+  str w13, [x10]
+  dsb sy
+  movz w0, #0x8400, lsl #16
+  movk w0, #0x2
+  smc #0
+1:
+  wfe
+  b 1b

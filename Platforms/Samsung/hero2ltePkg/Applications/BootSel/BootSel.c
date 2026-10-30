@@ -22,27 +22,15 @@
 #include <Library/CacheMaintenanceLib.h>
 
 /* ---- SMP probe: can Samsung's EL3 start the other A53 cores? ---------- */
-/* secondary entry (MMU off): box = page+0x800 (PC relative), per CPU 32 bytes:
- * +0 0xC0DE0000, +8 last step reached (EL1 system register / cache / TLB ops,
- * see the probe source in the commit), +16 x1; then PSCI CPU_OFF */
+/* secondary entry (MMU off), source SmpGicProbe.S.txt: box = page+0x800, per CPU 32 bytes:
+ * +0 0xC0DE0000, +8 GICD_ISENABLER0 after a non-secure write of 0x4800FFFF (SGI0-15,
+ * PPI27 virt timer, PPI30 phys timer: only non-secure bits stick), +16 CNTVCT-CNTPCT,
+ * +24 GICD_ISENABLER0 before; then PSCI CPU_OFF */
 STATIC CONST UINT32 mCpuProbeCode[] = {
-  0x10004009, 0xD53800AB, 0x92401D6B, 0x8B0B152A, 0xF9000941, 0x52B81BCD, 0xB900014D, 0xD280002C,
-  0xF900054C, 0xD5033F9F, 0xD538102C, 0xD518102C, 0xD280004C, 0xF900054C, 0xD5033F9F, 0xD538A20C,
-  0xD518A20C, 0xD538204C, 0xD518204C, 0xD280006C, 0xF900054C, 0xD5033F9F, 0xD538200C, 0xD518200C,
-  0xD538202C, 0xD518202C, 0xD280008C, 0xF900054C, 0xD5033F9F, 0xD538100C, 0xD518100C, 0xD5033FDF,
-  0xD28000AC, 0xF900054C, 0xD5033F9F, 0xD538070C, 0xD538040C, 0xD538060C, 0xD28000CC, 0xF900054C,
-  0xD5033F9F, 0xD508871F, 0xD5033F9F, 0xD5033FDF, 0xD28000EC, 0xF900054C, 0xD5033F9F, 0xD280000C,
-  0xD5087E4C, 0xD5033F9F, 0xD280010C, 0xF900054C, 0xD5033F9F, 0xD508751F, 0xD5033F9F, 0xD5033FDF,
-  0xD280012C, 0xF900054C, 0xD5033F9F, 0xD538104C, 0xB26C058C, 0xD518104C, 0xD5033FDF, 0x9E6703E0,
-  0xD280014C, 0xF900054C, 0xD5033F9F, 0xD538E10C, 0xD518E10C, 0xD53BE22C, 0xD51BE23F, 0xD280016C,
-  0xF900054C, 0xD5033F9F, 0xD538C00C, 0xD518C00C, 0xD280018C, 0xF900054C, 0xD5033F9F, 0xD530024C,
-  0xD28001AC, 0xF900054C, 0xD5033F9F, 0xD53B9C0C, 0xD28001CC, 0xF900054C, 0xD5033F9F, 0xD538D02C,
-  0xD518D02C, 0xD538D08C, 0xD518D08C, 0xD28001EC, 0xF900054C, 0xD5033F9F, 0xD50B7E2A, 0xD5033F9F,
-  0xD53B002C, 0xD539002C, 0xD280020C, 0xF900054C, 0xD5033F9F, 0xD51A001F, 0xD5033FDF, 0xD539000C,
-  0xD280022C, 0xF900054C, 0xD5033F9F, 0xD530118C, 0xD510109F, 0xD280024C, 0xF900054C, 0xD5033F9F,
-  0xD538740C, 0xD508780A, 0xD5033FDF, 0xD280026C, 0xF900054C, 0xD5033F9F, 0xD538510C, 0xD538A30C,
-  0xD518A30C, 0xD280028C, 0xF900054C, 0xD5033F9F, 0x52B08000, 0x72800040, 0xD4000003, 0xD503205F,
-  0x17FFFFFF
+  0x10004009, 0xD53800AB, 0x92401D6B, 0x8B0B152A, 0xD2A2200E, 0xF282000E, 0xB94101CD, 0xF9000D4D,
+  0x52A9000C, 0x729FFFEC, 0xB90101CC, 0xD5033F9F, 0xB94101CD, 0xF900054D, 0xD503201F, 0xD5033F9F,
+  0xD5033FDF, 0xD53BE04C, 0xD53BE02D, 0xCB0D018C, 0xF900094C, 0x52B81BCD, 0xB900014D, 0xD5033F9F,
+  0x52B08000, 0x72800040, 0xD4000003, 0xD503205F, 0x17FFFFFF
 
 };
 
@@ -196,8 +184,18 @@ CpuProbe (VOID)
   ARM_SMC_ARGS         Args;
   UINTN                Cpu, Wait;
 
-  Print (L"  CPU0 MPIDR %lx EL%d gicd_itargetsr0=%08x\n", ArmReadMpidr (), (UINT32)(ArmReadCurrentEL () >> 2),
-         *(volatile UINT32 *)(UINTN)0x11001800);
+  {
+    volatile UINT32 *En = (volatile UINT32 *)(UINTN)0x11001100;
+    UINT32 Before = En[0], After;
+    UINT64 Vct, Pct;
+    En[0] = 0x4800FFFF;
+    ArmDataSynchronizationBarrier ();
+    After = En[0];
+    ((volatile UINT32 *)(UINTN)0x11001180)[0] = 0x4800FFFF & ~Before;   /* restore */
+    __asm__ volatile ("isb\n mrs %0, cntvct_el0\n mrs %1, cntpct_el0" : "=r"(Vct), "=r"(Pct));
+    Print (L"  CPU0 MPIDR %lx EL%d en %08x->%08x vo %lx\n", ArmReadMpidr (), (UINT32)(ArmReadCurrentEL () >> 2),
+           Before, After, Vct - Pct);
+  }
   if (EFI_ERROR (gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesCode, 1, &Page))) return;
   ZeroMem ((VOID *)(UINTN)Page, EFI_PAGE_SIZE);
   CopyMem ((VOID *)(UINTN)Page, mCpuProbeCode, sizeof (mCpuProbeCode));
@@ -224,8 +222,8 @@ CpuProbe (VOID)
     }
     gBS->Stall (50000);                      /* let it run through all the steps */
     InvalidateDataCacheRange ((VOID *)Box, 256);
-    Print (L"  CPU_ON 0x10%d -> %d, mark %08x (%d ms) step %d/20\n", Cpu, (INT32)Args.Arg0, Box[Cpu * 8], Wait,
-           Box[Cpu * 8 + 2]);
+    Print (L"  CPU_ON 0x10%d -> %d, mark %08x (%d ms) en %08x->%08x vo %lx\n", Cpu, (INT32)Args.Arg0, Box[Cpu * 8], Wait,
+           Box[Cpu * 8 + 6], Box[Cpu * 8 + 2], *(volatile UINT64 *)&Box[Cpu * 8 + 4]);
   }
 }
 
@@ -352,7 +350,7 @@ BootSelMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Print (L"  Volume Down : Linux   %s\n", Lnx ? L"" : L"(not found)");
   Print (L"  Home        : WinPE   %s\n", Win ? L"" : L"(not found)");
   Print (L"  Power       : UEFI Shell\n\n");
-  if (0) CpuProbe ();   /* SMP probe: which EL1 operations work on a freshly started core */
+  CpuProbe ();   /* SMP probe: non-secure SGIs/PPIs and virtual counter offset per core */
   SmpDiag ();
   SmpInstallTrampoline ();
   Print (L"\n");
