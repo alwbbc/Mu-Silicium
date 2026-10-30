@@ -1,7 +1,7 @@
 From 0cac9d1196d362b32647ed958c318fcfb7331504 Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 15:21:12 +0300
-Subject: [PATCH 01/18] dt-bindings: clock: add exynos8890 SoC
+Subject: [PATCH 01/19] dt-bindings: clock: add exynos8890 SoC
 
 Provide dt-schema documentation for exynos8890 SoC clock controller.
 Add device tree clock binding definitions for the following CMU blocks:

@@ -1,7 +1,7 @@
 From 359dc6c40749c06f504be1e36c8eea10ecc7aad0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 29 Oct 2026 11:32:06 +0300
-Subject: [PATCH 17/18] regulator: s2mps11: s2mps16: add
+Subject: [PATCH 17/19] regulator: s2mps11: s2mps16: add
  of_match/regulators_node for 7.x DT matching
 
 ---

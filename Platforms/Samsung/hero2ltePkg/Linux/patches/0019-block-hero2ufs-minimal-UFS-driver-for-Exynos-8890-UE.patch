@@ -1,0 +1,465 @@
+From edf3c1ba74f5f9759c4dbab849e38ecbf1b9998c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 10:45:57 +0300
+Subject: [PATCH 19/19] block: hero2ufs: minimal UFS driver for Exynos 8890
+ (UEFI-initialised link); hero2lte: ufs node
+
+---
+ .../boot/dts/exynos/exynos8890-hero2lte.dts   |   8 +
+ drivers/block/Kconfig                         |   8 +
+ drivers/block/Makefile                        |   1 +
+ drivers/block/hero2ufs.c                      | 398 ++++++++++++++++++
+ 4 files changed, 415 insertions(+)
+ create mode 100644 drivers/block/hero2ufs.c
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos8890-hero2lte.dts b/arch/arm64/boot/dts/exynos/exynos8890-hero2lte.dts
+index 3348eb395..2ceb9a8ff 100644
+--- a/arch/arm64/boot/dts/exynos/exynos8890-hero2lte.dts
++++ b/arch/arm64/boot/dts/exynos/exynos8890-hero2lte.dts
+@@ -586,3 +586,11 @@ &serial_4 {
+ 	/* multiplexed over muic */
+ 	status = "okay";
+ };
++
++/ {
++	/* UFS host: link brought up by the Mu-Silicium UEFI, see drivers/block/hero2ufs.c */
++	ufs@155a0000 {
++		compatible = "samsung,hero2lte-ufs";
++		reg = <0x0 0x155a0000 0x3000>;
++	};
++};
+diff --git a/drivers/block/Kconfig b/drivers/block/Kconfig
+index 858320b6e..942e45b5c 100644
+--- a/drivers/block/Kconfig
++++ b/drivers/block/Kconfig
+@@ -19,6 +19,14 @@ if BLK_DEV
+ source "drivers/block/null_blk/Kconfig"
+ source "drivers/block/rnull/Kconfig"
+ 
++config BLK_DEV_HERO2UFS
++	tristate "Galaxy S7 Edge (Exynos 8890) UFS, UEFI-initialised link"
++	depends on OF && HAS_DMA
++	help
++	  Minimal polled UFS block driver for the Samsung Galaxy S7 Edge.
++	  Relies on the Mu-Silicium UEFI firmware having brought up the UFS
++	  link. Exposes the user LUN as /dev/ufsa.
++
+ config BLK_DEV_FD
+ 	tristate "Normal floppy disk support"
+ 	depends on ARCH_MAY_HAVE_PC_FDC
+diff --git a/drivers/block/Makefile b/drivers/block/Makefile
+index 2d8096eb8..8098b6ff1 100644
+--- a/drivers/block/Makefile
++++ b/drivers/block/Makefile
+@@ -41,3 +41,4 @@ obj-$(CONFIG_BLK_DEV_UBLK)			+= ublk_drv.o
+ obj-$(CONFIG_BLK_DEV_ZONED_LOOP) += zloop.o
+ 
+ swim_mod-y	:= swim.o swim_asm.o
++obj-$(CONFIG_BLK_DEV_HERO2UFS)	+= hero2ufs.o
+diff --git a/drivers/block/hero2ufs.c b/drivers/block/hero2ufs.c
+new file mode 100644
+index 000000000..6894f653d
+--- /dev/null
++++ b/drivers/block/hero2ufs.c
+@@ -0,0 +1,398 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * hero2ufs - minimal UFS block driver for the Galaxy S7 Edge (Exynos 8890).
++ *
++ * The Exynos 8890 UFS PHY/UniPro bring-up is not supported upstream. The
++ * Mu-Silicium UEFI firmware already brings the link up and leaves the host in
++ * a working state, so this driver only issues UTP transfer requests:
++ *   - one slot, polled (no interrupts), one request at a time
++ *   - LUN 0 (the 4 KiB-block user LUN that holds the GPT)
++ *   - every transfer goes through an uncached bounce buffer
++ *   - Exynos quirks: byte-granular PRDT offsets/lengths, NEXUS_TYPE registers,
++ *     4 KiB PRDT entries, 12-byte PRDT entry size
++ * It is a port of the Windows hero2ufs Storport miniport in Mu-Silicium.
++ */
++#include <linux/blk-mq.h>
++#include <linux/delay.h>
++#include <linux/dma-mapping.h>
++#include <linux/highmem.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/unaligned.h>
++
++#define REG_IS			0x20
++#define REG_IE			0x24
++#define REG_HCS			0x30
++#define REG_HCE			0x34
++#define REG_UTRLBA		0x50
++#define REG_UTRLBAU		0x54
++#define REG_UTRLDBR		0x58
++#define REG_UTRLCLR		0x5C
++#define REG_UTRLRSR		0x60
++#define REG_UTMRLBA		0x70
++#define REG_UTMRLBAU		0x74
++#define REG_UTMRLRSR		0x80
++#define VS_TXPRDT_ENTRY_SIZE	0x100
++#define VS_RXPRDT_ENTRY_SIZE	0x104
++#define VS_UTRL_NEXUS_TYPE	0x140
++#define VS_UMTRL_NEXUS_TYPE	0x144
++#define VS_DATA_REORDER		0x160
++
++#define IS_FATAL		(BIT(11) | BIT(16) | BIT(17) | BIT(7))
++#define UTP_HOST_TO_DEVICE	0x02000000
++#define UTP_DEVICE_TO_HOST	0x04000000
++#define UTP_INT_CMD		0x01000000
++#define OCS_SUCCESS		0x0
++#define OCS_INVALID		0xF
++
++#define UPIU_COMMAND		0x01
++#define UPIU_FLAG_WRITE		0x20
++#define UPIU_FLAG_READ		0x40
++
++#define PRDT_SEG		4096u
++#define MAX_XFER		(512u * 1024u)
++#define MAX_PRDT		(MAX_XFER / PRDT_SEG)
++#define UPIU_SIZE		1024u
++#define BLK_SIZE		4096u
++
++struct utrd {
++	__le32 dw[4];
++	__le32 ucd_lo, ucd_hi;
++	__le16 rsp_len, rsp_off;	/* bytes on Exynos */
++	__le16 prdt_len, prdt_off;	/* bytes on Exynos */
++};
++
++struct prdt { __le32 lo, hi, rsvd, size; };
++
++struct ucd {
++	u8 cmd[UPIU_SIZE];
++	u8 rsp[UPIU_SIZE];
++	struct prdt prdt[MAX_PRDT];
++};
++
++/* uncached layout: UTRL | UTMRL | UCD | bounce */
++#define OFF_UTRL	0x0000
++#define OFF_UTMRL	0x0400
++#define OFF_UCD		0x1000
++#define OFF_BOUNCE	0x4000
++#define DMA_SIZE	(OFF_BOUNCE + MAX_XFER)
++
++struct hero2ufs {
++	struct device *dev;
++	void __iomem *hci;
++	void *base;
++	dma_addr_t base_pa;
++	struct utrd *utrd;
++	struct ucd *ucd;
++	u8 *bounce;
++	struct mutex lock;
++	struct blk_mq_tag_set tag_set;
++	struct gendisk *disk;
++	u32 last_lba;
++};
++
++static inline u32 rd(struct hero2ufs *h, u32 o) { return readl(h->hci + o); }
++static inline void wr(struct hero2ufs *h, u32 o, u32 v) { writel(v, h->hci + o); }
++
++/* returns 0, or -EIO; *status = SCSI status */
++static int ufs_exec(struct hero2ufs *h, const u8 *cdb, int cdb_len, u32 len,
++		    bool to_dev, u8 *status, u8 *sense_key)
++{
++	struct utrd *t = h->utrd;
++	struct ucd *u = h->ucd;
++	dma_addr_t ucd_pa = h->base_pa + OFF_UCD, pa = h->base_pa + OFF_BOUNCE;
++	u32 n = 0, left = len, is = 0, ocs, db;
++	int ret;
++
++	memset(u->cmd, 0, 64);
++	memset(u->rsp, 0, 64);
++	memset(t, 0, sizeof(*t));
++
++	while (left && n < MAX_PRDT) {
++		u32 chunk = min(left, PRDT_SEG);
++
++		u->prdt[n].lo = cpu_to_le32(lower_32_bits(pa));
++		u->prdt[n].hi = cpu_to_le32(upper_32_bits(pa));
++		u->prdt[n].rsvd = 0;
++		u->prdt[n].size = cpu_to_le32(chunk - 1);
++		pa += chunk;
++		left -= chunk;
++		n++;
++	}
++
++	u->cmd[0] = UPIU_COMMAND;
++	u->cmd[1] = len ? (to_dev ? UPIU_FLAG_WRITE : UPIU_FLAG_READ) : 0;
++	u->cmd[2] = 0;			/* LUN */
++	u->cmd[3] = 0;			/* tag */
++	put_unaligned_be32(len, &u->cmd[12]);
++	memcpy(&u->cmd[16], cdb, min(cdb_len, 16));
++
++	t->dw[0] = cpu_to_le32(UTP_INT_CMD |
++			       (len ? (to_dev ? UTP_HOST_TO_DEVICE : UTP_DEVICE_TO_HOST) : 0));
++	t->dw[2] = cpu_to_le32(OCS_INVALID);
++	t->ucd_lo = cpu_to_le32(lower_32_bits(ucd_pa));
++	t->ucd_hi = cpu_to_le32(upper_32_bits(ucd_pa));
++	t->rsp_off = cpu_to_le16(offsetof(struct ucd, rsp));
++	t->rsp_len = cpu_to_le16(UPIU_SIZE);
++	t->prdt_off = cpu_to_le16(len ? offsetof(struct ucd, prdt) : 0);
++	t->prdt_len = cpu_to_le16(len ? n * sizeof(struct prdt) : 0);
++
++	wmb();
++	wr(h, REG_IS, rd(h, REG_IS));
++	wr(h, REG_UTRLDBR, 1);
++
++	ret = readl_poll_timeout(h->hci + REG_UTRLDBR, db,
++				 !(db & 1) || (rd(h, REG_IS) & IS_FATAL), 5, 5000000);
++	is = rd(h, REG_IS);
++	wr(h, REG_IS, is);
++	rmb();
++
++	if (rd(h, REG_UTRLDBR) & 1) {
++		wr(h, REG_UTRLCLR, ~1u);
++		dev_err(h->dev, "timeout op %02x is %08x\n", cdb[0], is);
++		return -EIO;
++	}
++	ocs = le32_to_cpu(t->dw[2]) & 0xF;
++	if (ocs != OCS_SUCCESS || (is & IS_FATAL)) {
++		dev_err(h->dev, "op %02x ocs %x is %08x\n", cdb[0], ocs, is);
++		return -EIO;
++	}
++	*status = u->rsp[7];
++	if (sense_key)
++		*sense_key = (*status == 0x02) ? (u->rsp[32 + 2 + 2] & 0xF) : 0;
++	return *status ? -EIO : 0;
++}
++
++static int ufs_cmd(struct hero2ufs *h, const u8 *cdb, int cdb_len, u32 len, bool to_dev)
++{
++	u8 st = 0, sk = 0;
++	int i, ret = -EIO;
++
++	for (i = 0; i < 4; i++) {
++		ret = ufs_exec(h, cdb, cdb_len, len, to_dev, &st, &sk);
++		if (!ret || st != 0x02 || sk != 0x06)	/* retry UNIT ATTENTION */
++			break;
++	}
++	return ret;
++}
++
++static blk_status_t hero2ufs_queue_rq(struct blk_mq_hw_ctx *hctx,
++				      const struct blk_mq_queue_data *bd)
++{
++	struct hero2ufs *h = hctx->queue->queuedata;
++	struct request *rq = bd->rq;
++	struct req_iterator iter;
++	struct bio_vec bv;
++	u32 lba, bytes, off = 0;
++	u8 cdb[10] = { 0 };
++	bool write;
++	int ret;
++
++	blk_mq_start_request(rq);
++	mutex_lock(&h->lock);
++
++	switch (req_op(rq)) {
++	case REQ_OP_FLUSH:
++		cdb[0] = 0x35;			/* SYNCHRONIZE CACHE(10) */
++		ret = ufs_cmd(h, cdb, 10, 0, false);
++		break;
++	case REQ_OP_READ:
++	case REQ_OP_WRITE:
++		write = req_op(rq) == REQ_OP_WRITE;
++		lba = blk_rq_pos(rq) >> 3;	/* 512 B sectors -> 4 KiB blocks */
++		bytes = blk_rq_bytes(rq);
++		if (bytes > MAX_XFER || (bytes & (BLK_SIZE - 1))) {
++			ret = -EIO;
++			break;
++		}
++		if (write) {
++			rq_for_each_segment(bv, rq, iter) {
++				memcpy_from_bvec(h->bounce + off, &bv);
++				off += bv.bv_len;
++			}
++		}
++		cdb[0] = write ? 0x2A : 0x28;
++		put_unaligned_be32(lba, &cdb[2]);
++		put_unaligned_be16(bytes / BLK_SIZE, &cdb[7]);
++		ret = ufs_cmd(h, cdb, 10, bytes, write);
++		if (!ret && !write) {
++			rq_for_each_segment(bv, rq, iter) {
++				memcpy_to_bvec(&bv, h->bounce + off);
++				off += bv.bv_len;
++			}
++		}
++		break;
++	default:
++		ret = -EOPNOTSUPP;
++		break;
++	}
++
++	mutex_unlock(&h->lock);
++	blk_mq_end_request(rq, ret == -EOPNOTSUPP ? BLK_STS_NOTSUPP :
++				   ret ? BLK_STS_IOERR : BLK_STS_OK);
++	return BLK_STS_OK;
++}
++
++static int hero2ufs_major;
++static const struct block_device_operations hero2ufs_fops = {
++	.owner = THIS_MODULE,
++};
++
++static const struct blk_mq_ops hero2ufs_mq_ops = {
++	.queue_rq = hero2ufs_queue_rq,
++};
++
++static void hero2ufs_hw_init(struct hero2ufs *h)
++{
++	dma_addr_t utrl = h->base_pa + OFF_UTRL, utmrl = h->base_pa + OFF_UTMRL;
++	u32 v;
++
++	/* let anything UEFI left in flight finish, then take over the lists */
++	readl_poll_timeout(h->hci + REG_UTRLDBR, v, !(v & 1), 10, 100000);
++	wr(h, REG_UTRLRSR, 0);
++	wr(h, REG_UTMRLRSR, 0);
++	wr(h, REG_IE, 0);
++	wr(h, REG_IS, rd(h, REG_IS));
++
++	wr(h, REG_UTRLBA, lower_32_bits(utrl));
++	wr(h, REG_UTRLBAU, upper_32_bits(utrl));
++	wr(h, REG_UTMRLBA, lower_32_bits(utmrl));
++	wr(h, REG_UTMRLBAU, upper_32_bits(utmrl));
++
++	wr(h, VS_DATA_REORDER, 0xA);
++	wr(h, VS_TXPRDT_ENTRY_SIZE, 12);
++	wr(h, VS_RXPRDT_ENTRY_SIZE, 12);
++	wr(h, VS_UTRL_NEXUS_TYPE, 0xFFFFFFFF);
++	wr(h, VS_UMTRL_NEXUS_TYPE, 0xFFFFFFFF);
++
++	wr(h, REG_UTMRLRSR, 1);
++	wr(h, REG_UTRLRSR, 1);
++}
++
++static int hero2ufs_probe(struct platform_device *pdev)
++{
++	struct queue_limits lim = {
++		.logical_block_size	= BLK_SIZE,
++		.physical_block_size	= BLK_SIZE,
++		.io_min			= BLK_SIZE,
++		.max_hw_sectors		= MAX_XFER >> SECTOR_SHIFT,
++		.max_segments		= MAX_XFER / PAGE_SIZE,
++		.features		= BLK_FEAT_WRITE_CACHE,
++	};
++	struct device *dev = &pdev->dev;
++	struct hero2ufs *h;
++	u8 cdb[10] = { 0x25 };		/* READ CAPACITY(10) */
++	u32 bs;
++	int ret;
++
++	h = devm_kzalloc(dev, sizeof(*h), GFP_KERNEL);
++	if (!h)
++		return -ENOMEM;
++	h->dev = dev;
++	mutex_init(&h->lock);
++
++	h->hci = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(h->hci))
++		return PTR_ERR(h->hci);
++
++	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
++	if (ret)
++		return ret;
++	h->base = dmam_alloc_coherent(dev, DMA_SIZE, &h->base_pa, GFP_KERNEL);
++	if (!h->base)
++		return -ENOMEM;
++	h->utrd = h->base + OFF_UTRL;
++	h->ucd = h->base + OFF_UCD;
++	h->bounce = h->base + OFF_BOUNCE;
++
++	dev_info(dev, "HCE %x HCS %x\n", rd(h, REG_HCE), rd(h, REG_HCS));
++	if (!(rd(h, REG_HCE) & 1)) {
++		dev_err(dev, "host not enabled: boot through the Mu-Silicium UEFI\n");
++		return -ENODEV;
++	}
++	hero2ufs_hw_init(h);
++
++	{
++		u8 tur[6] = { 0 };
++
++		ufs_cmd(h, tur, 6, 0, false);	/* eat the power-on UNIT ATTENTION */
++	}
++	ret = ufs_cmd(h, cdb, 10, 8, false);
++	if (ret)
++		return dev_err_probe(dev, ret, "READ CAPACITY failed\n");
++	h->last_lba = get_unaligned_be32(h->bounce);
++	bs = get_unaligned_be32(h->bounce + 4);
++	if (bs != BLK_SIZE)
++		return dev_err_probe(dev, -EINVAL, "unexpected block size %u\n", bs);
++
++	if (!hero2ufs_major) {
++		ret = register_blkdev(0, "hero2ufs");
++		if (ret < 0)
++			return ret;
++		hero2ufs_major = ret;
++	}
++
++	h->tag_set.ops = &hero2ufs_mq_ops;
++	h->tag_set.nr_hw_queues = 1;
++	h->tag_set.queue_depth = 4;
++	h->tag_set.numa_node = NUMA_NO_NODE;
++	h->tag_set.flags = BLK_MQ_F_BLOCKING;
++	ret = blk_mq_alloc_tag_set(&h->tag_set);
++	if (ret)
++		return ret;
++
++	h->disk = blk_mq_alloc_disk(&h->tag_set, &lim, h);
++	if (IS_ERR(h->disk)) {
++		blk_mq_free_tag_set(&h->tag_set);
++		return PTR_ERR(h->disk);
++	}
++	h->disk->major = hero2ufs_major;
++	h->disk->first_minor = 0;
++	h->disk->minors = 64;
++	h->disk->fops = &hero2ufs_fops;
++	snprintf(h->disk->disk_name, DISK_NAME_LEN, "ufsa");
++	set_capacity(h->disk, ((sector_t)h->last_lba + 1) * (BLK_SIZE >> SECTOR_SHIFT));
++
++	ret = add_disk(h->disk);
++	if (ret) {
++		put_disk(h->disk);
++		blk_mq_free_tag_set(&h->tag_set);
++		return ret;
++	}
++	platform_set_drvdata(pdev, h);
++	dev_info(dev, "ufsa: %u blocks of 4 KiB (%llu MiB)\n", h->last_lba + 1,
++		 ((u64)h->last_lba + 1) * BLK_SIZE >> 20);
++	return 0;
++}
++
++static void hero2ufs_remove(struct platform_device *pdev)
++{
++	struct hero2ufs *h = platform_get_drvdata(pdev);
++
++	del_gendisk(h->disk);
++	put_disk(h->disk);
++	blk_mq_free_tag_set(&h->tag_set);
++}
++
++static const struct of_device_id hero2ufs_of_match[] = {
++	{ .compatible = "samsung,hero2lte-ufs" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, hero2ufs_of_match);
++
++static struct platform_driver hero2ufs_driver = {
++	.probe	= hero2ufs_probe,
++	.remove	= hero2ufs_remove,
++	.driver	= {
++		.name		= "hero2ufs",
++		.of_match_table	= hero2ufs_of_match,
++	},
++};
++module_platform_driver(hero2ufs_driver);
++
++MODULE_DESCRIPTION("Minimal UFS block driver for Exynos 8890 (UEFI-initialised link)");
++MODULE_LICENSE("GPL");
+-- 
+2.43.0
+

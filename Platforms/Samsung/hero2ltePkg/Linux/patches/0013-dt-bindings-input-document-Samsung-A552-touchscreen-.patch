@@ -1,7 +1,7 @@
 From ec41a760505e0b18a6e0ea884923ec5c7b2bd367 Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 16:44:56 +0300
-Subject: [PATCH 13/18] dt-bindings: input: document Samsung A552 touchscreen
+Subject: [PATCH 13/19] dt-bindings: input: document Samsung A552 touchscreen
  controller
 
 Document the Samsung A552 touchscreen controller, present in devices like

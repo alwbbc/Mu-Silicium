@@ -1,7 +1,7 @@
 From 6c5246e0e0e6f0319ef86e93548201357cdc9cbf Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 15:42:23 +0300
-Subject: [PATCH 08/18] dt-bindings: clock: samsung,s2mps11: document the
+Subject: [PATCH 08/19] dt-bindings: clock: samsung,s2mps11: document the
  S2MPS16 compatible
 
 The S2MPS16 PMIC, alongside regulators and an rtc, provides 3 clock

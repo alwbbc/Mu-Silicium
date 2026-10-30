@@ -1,7 +1,7 @@
 From 106339aca90b578d41315bfd0e92ef5915427174 Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 15:42:24 +0300
-Subject: [PATCH 09/18] mfd: sec: add support for s2mps16 pmic
+Subject: [PATCH 09/19] mfd: sec: add support for s2mps16 pmic
 
 Add support for Samsung's s2mps16 pmic. It's the primary PMIC used by
 exynos8890 devices. It houses regulators (38 LDOs and 11 BUCKs), three

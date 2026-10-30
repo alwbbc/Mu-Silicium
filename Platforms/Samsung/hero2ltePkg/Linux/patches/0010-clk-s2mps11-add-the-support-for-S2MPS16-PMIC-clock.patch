@@ -1,7 +1,7 @@
 From d036d0e580cf9f582014a13fd6370859589003f8 Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 15:42:25 +0300
-Subject: [PATCH 10/18] clk: s2mps11: add the support for S2MPS16 PMIC clock
+Subject: [PATCH 10/19] clk: s2mps11: add the support for S2MPS16 PMIC clock
 
 Add the support for S2MPS16 PMIC clock, which is functionally the same
 as the currently supported ones, with the exception of a different

@@ -1,7 +1,7 @@
 From 35996e129842b92260a75eb478633067240092fb Mon Sep 17 00:00:00 2001
 From: Ivaylo Ivanov <ivo.ivanov.ivanov1@gmail.com>
 Date: Sun, 14 Sep 2025 15:42:26 +0300
-Subject: [PATCH 11/18] rtc: s5m: add support for S2MPS16 RTC
+Subject: [PATCH 11/19] rtc: s5m: add support for S2MPS16 RTC
 
 Add support for Samsung's S2MPS16 PMIC RTC, which has pretty much
 identical functionality to the existing S2MPS15 support, with the
